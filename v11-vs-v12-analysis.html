@@ -3,18 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>v11 vs v12 — 硬编码问题技术参考分析</title>
+<title>v11 vs v12 — 完整技术分析报告 v2（含后端架构）</title>
 <style>
   :root {
     --bg: #F8F9FA; --card: #FFFFFF; --border: #E2E8F0;
     --text: #1A202C; --muted: #64748B; --accent: #2563EB;
     --red: #DC2626; --green: #059669; --amber: #D97706; --purple: #7C3AED;
+    --teal: #0D9488; --pink: #DB2777;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
-  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
-  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
   .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .version-tag { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; background: #DBEAFE; color: #1D4ED8; margin-left: 8px; }
 
   .section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 20px; }
   .section-title { font-size: 16px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
@@ -22,6 +24,9 @@
   .badge-critical { background: #FEE2E2; color: var(--red); }
   .badge-high { background: #FEF3C7; color: var(--amber); }
   .badge-solved { background: #D1FAE5; color: var(--green); }
+  .badge-info { background: #DBEAFE; color: var(--accent); }
+  .badge-new { background: #F3E8FF; color: var(--purple); }
+  .badge-teal { background: #CCFBF1; color: var(--teal); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th { background: #F1F5F9; text-align: left; padding: 10px 12px; font-weight: 600; font-size: 12px; color: var(--muted); border-bottom: 2px solid var(--border); }
@@ -31,47 +36,76 @@
 
   code { background: #F1F5F9; padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--accent); font-family: 'SF Mono', Menlo, monospace; }
   pre { background: #1E293B; color: #E2E8F0; padding: 14px 18px; border-radius: 8px; font-size: 12.5px; line-height: 1.6; overflow-x: auto; font-family: 'SF Mono', Menlo, monospace; margin: 10px 0; }
-  pre .cm { color: #64748B; }
-  pre .kw { color: #C084FC; }
-  pre .fn { color: #67E8F9; }
-  pre .str { color: #86EFAC; }
+  pre .cm { color: #64748B; } pre .kw { color: #C084FC; } pre .fn { color: #67E8F9; }
+  pre .str { color: #86EFAC; } pre .num { color: #FCD34D; }
 
   .ver-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
   .ver-v11 { background: #DBEAFE; color: #1D4ED8; }
   .ver-v12 { background: #FEE2E2; color: #DC2626; }
+  .ver-pb { background: #CCFBF1; color: var(--teal); }
 
-  .issue-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 700; color: white; margin-right: 6px; }
+  .issue-num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; font-size: 11px; font-weight: 700; color: white; margin-right: 6px; flex-shrink:0; }
   .num-critical { background: var(--red); }
   .num-high { background: var(--amber); }
+  .num-solved { background: var(--green); }
+  .num-info { background: var(--accent); }
+  .num-new { background: var(--purple); }
+  .num-teal { background: var(--teal); }
 
   .ref-box { background: #F0FDF4; border-left: 3px solid var(--green); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 13px; }
   .ref-box-title { font-weight: 700; color: var(--green); font-size: 12px; margin-bottom: 4px; }
+  .ref-box-teal { background: #F0FDFA; border-left: 3px solid var(--teal); }
+  .ref-box-teal .ref-box-title { color: var(--teal); }
 
-  .arch-diagram { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
-  .arch-box { flex: 1; min-width: 200px; background: #F8FAFC; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .arch-diagram { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; align-items: stretch; }
+  .arch-box { flex: 1; min-width: 220px; background: #F8FAFC; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
   .arch-box h4 { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
 
-  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
   .summary-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
   .summary-card .num { font-size: 28px; font-weight: 800; }
   .summary-card .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .num-red { color: var(--red); }
-  .num-green { color: var(--green); }
-  .num-amber { color: var(--amber); }
-
-  .priority-indicator { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-  .pi-critical { background: var(--red); }
-  .pi-high { background: var(--amber); }
-  .pi-solved { background: var(--green); }
+  .num-red { color: var(--red); } .num-green { color: var(--green); }
+  .num-amber { color: var(--amber); } .num-accent { color: var(--accent); }
+  .num-purple { color: var(--purple); } .num-teal { color: var(--teal); }
 
   .migration-step { display: flex; gap: 12px; margin: 8px 0; align-items: flex-start; }
-  .step-num { background: var(--accent); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .step-num { color: white; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
   .step-content { font-size: 13px; flex: 1; }
+  .step-done { background: var(--green); text-decoration: line-through; color: #aaa; }
+  .step-done .step-content { color: var(--muted); }
 
   .highlight-box { background: #EFF6FF; border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 13px; }
   .highlight-box-title { font-weight: 700; color: var(--accent); font-size: 12px; margin-bottom: 4px; }
+  .highlight-box-purple { background: #FAF5FF; border-left-color: var(--purple); }
+  .highlight-box-purple .highlight-box-title { color: var(--purple); }
+  .highlight-box-amber { background: #FFFBEB; border-left-color: var(--amber); }
+  .highlight-box-amber .highlight-box-title { color: var(--amber); }
+  .highlight-box-red { background: #FEF2F2; border-left-color: var(--red); }
+  .highlight-box-red .highlight-box-title { color: var(--red); }
 
   .divider { border: none; border-top: 1px dashed var(--border); margin: 28px 0 24px; }
+
+  .db-table-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin: 14px 0; }
+  .db-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-size: 13px; }
+  .db-card h4 { font-weight: 700; margin-bottom: 6px; font-size: 13px; }
+  .db-card .fields { color: var(--muted); font-size: 12px; font-family: 'SF Mono', Menlo, monospace; line-height: 1.8; }
+  .db-card .fields strong { color: var(--text); font-weight: 600; }
+
+  .api-endpoint { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #F8FAFC; border-radius: 6px; margin: 6px 0; font-size: 13px; }
+  .api-method { font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px; color: white; flex-shrink:0; }
+  .api-get { background: var(--green); } .api-post { background: var(--accent); }
+  .api-path { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--accent); font-weight: 600; }
+  .api-desc { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+  .priority-bar { display: flex; gap: 0; border-radius: 8px; overflow: hidden; margin: 14px 0; border: 1px solid var(--border); }
+  .priority-seg { padding: 12px 16px; font-size: 12px; font-weight: 600; }
+  .p-done { background: #D1FAE5; color: var(--green); flex: 1; }
+  .p-p0 { background: #FEE2E2; color: var(--red); flex: 2; }
+  .p-p1 { background: #FEF3C7; color: var(--amber); flex: 1.5; }
+  .p-nice { background: #DBEAFE; color: var(--accent); flex: 1; }
+
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 20px; display: flex; align-items: center; }
 
   @media print {
     body { background: white; }
@@ -82,585 +116,632 @@
 <body>
 <div class="container">
 
-<h1>v11 → v12 硬编码问题技术参考分析</h1>
-<p class="subtitle">基于 v11 源码（5952 行）中可复用的技术方案，逐项对照 v12 存在的问题并给出迁移建议 — 含 5 个 Critical 问题 + 5 个设计亮点</p>
+<h1>v11 → v12 完整技术分析报告 <span class="version-tag">v2</span></h1>
+<p class="subtitle">基于 v11 源码（5952 行）+ PocketBase 后端（7 张表 / 7 个 API）的全面对比 — 5 个 Critical 问题 + 后端架构详解 + FDE 优先修复路线</p>
 
-<!-- 总览 -->
+<!-- ==================== 总览 ==================== -->
 <div class="summary-grid">
-  <div class="summary-card">
-    <div class="num num-red">5</div>
-    <div class="label">v12 待解决问题</div>
+  <div class="summary-card"><div class="num num-red">5</div><div class="label">v12 Critical 问题</div></div>
+  <div class="summary-card"><div class="num num-teal">7</div><div class="label">PocketBase 数据表</div></div>
+  <div class="summary-card"><div class="num num-teal">7</div><div class="label">后端 API 端点</div></div>
+  <div class="summary-card"><div class="num num-green">5</div><div class="label">设计亮点</div></div>
+  <div class="summary-card"><div class="num num-accent">8</div><div class="label">推荐迁移步骤</div></div>
+  <div class="summary-card"><div class="num num-purple">3</div><div class="label">已完成修复</div></div>
+</div>
+
+<!-- ==================== 后端架构 ==================== -->
+<div class="section">
+  <div class="section-title">
+    <span class="issue-num num-teal">★</span>
+    v11 后端架构：PocketBase
+    <span class="badge badge-teal">重大发现（v1 报告遗漏）</span>
   </div>
-  <div class="summary-card">
-    <div class="num num-green">5</div>
-    <div class="label">v11 可参考方案</div>
+
+  <p style="font-size:13px; margin-bottom:14px">
+    <strong>v1 报告将 v11 描述为"纯前端 localStorage 架构"，这是错误的。</strong>
+    v11 实际采用<strong>前端 + PocketBase 后端</strong>的双模式架构：前端通过 localStorage 做本地缓存和离线支持，同时通过 PocketBase API 实现后端持久化、LLM 代理调用和知识库管理。
+  </p>
+
+  <div class="arch-diagram">
+    <div class="arch-box" style="border-left: 3px solid var(--teal);">
+      <h4 style="color: var(--teal);">PocketBase 后端</h4>
+      <p style="font-size:12px; color:var(--muted);">
+        <code>./pocketbase serve --http=127.0.0.1:8090</code><br>
+        运行中 (PID 95728) · SQLite 数据库<br>
+        7 张表 · 7 个自定义路由<br>
+        LLM 代理（隐藏 API Key）<br>
+        知识库持久化与双向引用
+      </p>
+    </div>
+    <div class="flow-arrow">↔</div>
+    <div class="arch-box" style="border-left: 3px solid var(--accent);">
+      <h4 style="color: var(--accent);">v11 前端 (5952 行)</h4>
+      <p style="font-size:12px; color:var(--muted);">
+        localStorage 本地缓存<br>
+        <code>fetch('http://127.0.0.1:8090/api/...')</code><br>
+        30+ 处 API 调用<br>
+        双模式：有后端用 API，无后端降级 localStorage
+      </p>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="arch-box" style="border-left: 3px solid var(--red);">
+      <h4 style="color: var(--red);">DeepSeek LLM</h4>
+      <p style="font-size:12px; color:var(--muted);">
+        API Key 存储在 PocketBase secrets 表<br>
+        通过后端代理调用（前端不暴露）<br>
+        模型: deepseek-v4-pro<br>
+        Anthropic 协议兼容
+      </p>
+    </div>
   </div>
-  <div class="summary-card">
-    <div class="num" style="color:var(--accent)">5</div>
-    <div class="label">设计亮点（加分项）</div>
-  </div>
-  <div class="summary-card">
-    <div class="num num-amber">8</div>
-    <div class="label">推荐迁移步骤</div>
+
+  <div class="highlight-box-red">
+    <div class="highlight-box-title">关键结论</div>
+    <strong>v12 不需要自建后端</strong> — PocketBase 已在运行，数据库中有真实数据，API 设计完善。<br>
+    v12 只需将 localStorage 调用替换为 PocketBase API 调用即可获得完整后端能力。
   </div>
 </div>
 
-<!-- ==================== 问题1 ==================== -->
+<!-- ==================== 数据库表 ==================== -->
 <div class="section">
   <div class="section-title">
-    <span class="issue-num num-critical">1</span>
-    全量数据硬编码 · 无外部配置加载能力
-    <span class="badge badge-critical">Critical</span>
+    <span class="issue-num num-teal">★</span>
+    PocketBase 数据表（7 张）
+  </div>
+
+  <div class="db-table-grid">
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> voices · 用户声音</h4>
+      <div class="fields">
+        <strong>voiceId</strong> TEXT UNIQUE<br>
+        <strong>model</strong> TEXT（车型）<br>
+        <strong>content</strong> TEXT(2000)<br>
+        <strong>channel</strong> TEXT（渠道）<br>
+        <strong>status</strong> SELECT: 待处理/处理中/已归类/新建REQ/需澄清/已忽略<br>
+        <strong>mergedFrom</strong> JSON（合并来源）
+      </div>
+    </div>
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> reqs · 需求 Wiki</h4>
+      <div class="fields">
+        <strong>reqId</strong> TEXT UNIQUE<br>
+        <strong>module</strong> TEXT<br>
+        <strong>complaintTypes</strong> JSON<br>
+        <strong>complaintCount</strong> NUMBER<br>
+        <strong>hotness</strong> SELECT: 低/中/高/P0<br>
+        <strong>isAuto</strong> BOOL<br>
+        <strong>voiceCount</strong> NUMBER<br>
+        <strong>crossRefs</strong> JSON<br>
+        <strong>tcIdList</strong> JSON<br>
+        <strong>lastTriggeredVoiceId</strong> TEXT<br>
+        <strong>lastTriggeredAt</strong> DATE
+      </div>
+    </div>
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> tcs · 测试用例</h4>
+      <div class="fields">
+        <strong>tcId</strong> TEXT UNIQUE<br>
+        <strong>reqId</strong> TEXT（索引）<br>
+        <strong>module</strong> TEXT（索引）<br>
+        <strong>complaintType</strong> TEXT<br>
+        <strong>what/when/where/who</strong> TEXT(500)<br>
+        <strong>scene</strong> TEXT(4000)<br>
+        <strong>conf</strong> SELECT: high/mid/low<br>
+        <strong>confVal</strong> NUMBER(0-1)<br>
+        <strong>fromVoice</strong> TEXT<br>
+        <strong>isModified/isSeed/isNewReq</strong> BOOL<br>
+        <strong>originalScene</strong> TEXT(4000)
+      </div>
+    </div>
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> decisions · 审核日志</h4>
+      <div class="fields">
+        <strong>tcId</strong> TEXT<br>
+        <strong>voiceId</strong> TEXT<br>
+        <strong>action</strong> SELECT: accept/modify/reject/regenerate<br>
+        <strong>note</strong> TEXT(2000)<br>
+        <strong>sceneSnapshot</strong> TEXT(4000)<br>
+        <strong>userEmail</strong> TEXT<br>
+        ⚠ <strong>不可变</strong>：updateRule=null, deleteRule=null
+      </div>
+    </div>
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> llm_calls · LLM 调用日志</h4>
+      <div class="fields">
+        <strong>stage</strong> SELECT: stage0/stage1/stage2<br>
+        <strong>voiceId</strong> TEXT<br>
+        <strong>model</strong> TEXT<br>
+        <strong>success</strong> BOOL<br>
+        <strong>inputTokens</strong> NUMBER<br>
+        <strong>outputTokens</strong> NUMBER<br>
+        <strong>elapsedMs</strong> NUMBER<br>
+        <strong>decision</strong> TEXT<br>
+        <strong>errorMsg</strong> TEXT(1000)<br>
+        ⚠ <strong>不可变</strong>：updateRule=null, deleteRule=null
+      </div>
+    </div>
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> config · KV 配置</h4>
+      <div class="fields">
+        <strong>key</strong> TEXT UNIQUE<br>
+        <strong>value</strong> JSON(1MB)<br>
+        <strong>comment</strong> TEXT(500)<br>
+        用途: modules / complaintTypes / tcSeeds 等全局配置
+      </div>
+    </div>
+    <div class="db-card">
+      <h4><span class="ver-tag ver-pb">PB</span> secrets · 敏感配置</h4>
+      <div class="fields">
+        <strong>key</strong> TEXT UNIQUE<br>
+        <strong>value</strong> JSON(8KB)<br>
+        <strong>description</strong> TEXT(200)<br>
+        <strong>updatedBy</strong> TEXT<br>
+        ⚠ <strong>仅 admin 可读写</strong>，Hook 内部用 dao 绕过<br>
+        当前: llm_config + tuning_params
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== API 端点 ==================== -->
+<div class="section">
+  <div class="section-title">
+    <span class="issue-num num-teal">★</span>
+    PocketBase API 端点（7 个自定义路由）
   </div>
 
   <table>
-    <thead>
-      <tr><th style="width:100px">对比维度</th><th>v12 现状</th><th>v11 解决方案</th></tr>
-    </thead>
+    <thead><tr><th style="width:60px">方法</th><th style="width:260px">路径</th><th>功能</th><th>v12 复用</th></tr></thead>
     <tbody>
       <tr>
-        <td><span class="ver-tag ver-v12">v12</span></td>
-        <td><code>hmi_gen_v12_data.js</code> 中所有模块、需求、投诉类型、种子用例、4W 模板均硬编码为 JS 常量。数据变更必须改源码。</td>
-        <td>—</td>
+        <td><span class="api-method api-post">POST</span></td>
+        <td class="api-path">/api/llm/stage1</td>
+        <td>LLM REQ 层判断：接收声音内容 → 构造 system prompt（含模块词表 + Wiki 状态）→ 调用 DeepSeek → 返回 decision/module/reqId/confidence/reasoning/thinking。自动写 llm_calls 日志。</td>
+        <td><span class="badge badge-critical">P0 必须</span></td>
       </tr>
       <tr>
-        <td><span class="ver-tag ver-v11">v11</span></td>
-        <td>—</td>
+        <td><span class="api-method api-post">POST</span></td>
+        <td class="api-path">/api/llm/stage2</td>
+        <td>LLM TC 层 4W 比对：接收声音 + 候选 TC 列表 → 逐条 4W 字段比对 → 返回 exact/partial/fallback + newTcSuggestion。自动写 llm_calls 日志。</td>
+        <td><span class="badge badge-critical">P0 必须</span></td>
+      </tr>
+      <tr>
+        <td><span class="api-method api-post">POST</span></td>
+        <td class="api-path">/api/wiki/persist</td>
+        <td>批量写入三阶段结果：exactHit → bump计数 / partialHit → 新增TC / newReq → 新增REQ+TC / crossReq → 双向crossRefs。幂等设计，可重跑。</td>
+        <td><span class="badge badge-high">P1 推荐</span></td>
+      </tr>
+      <tr>
+        <td><span class="api-method api-get">GET</span></td>
+        <td class="api-path">/api/wiki/state</td>
+        <td>知识库实时状态：totalReqs / totalVoices / totalTcs + 每个 REQ 的 voiceCount/tcCount/crossRefs 列表。</td>
+        <td><span class="badge badge-high">P1 推荐</span></td>
+      </tr>
+      <tr>
+        <td><span class="api-method api-get">GET</span></td>
+        <td class="api-path">/api/llm/stats</td>
+        <td>LLM 累计统计：calls/success/failure/totalTokens/avgElapsedMs/estCostYuan（成本估算 ¥）。</td>
+        <td><span class="badge badge-info">Nice</span></td>
+      </tr>
+      <tr>
+        <td><span class="api-method api-get">GET</span></td>
+        <td class="api-path">/api/admin/llm-config</td>
+        <td>读取 LLM 配置（apiKey 脱敏显示）+ 调优参数（max_tokens / timeout / thinking_budget）。</td>
+        <td><span class="badge badge-info">Nice</span></td>
+      </tr>
+      <tr>
+        <td><span class="api-method api-post">POST</span></td>
+        <td class="api-path">/api/admin/llm-config</td>
+        <td>更新 LLM 配置：apiKey/baseUrl/model/updatedBy。未传字段保留原值。运行时可改无需重启。</td>
+        <td><span class="badge badge-info">Nice</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="highlight-box">
+    <div class="highlight-box-title">安全设计亮点</div>
+    LLM API Key 存储在 PocketBase <code>secrets</code> 表中（listRule/viewRule/createRule/updateRule/deleteRule 全为 null = 仅 admin 可访问），前端通过 <code>/api/llm/stage1</code> 和 <code>/api/llm/stage2</code> 代理调用，<strong>API Key 永远不暴露给前端</strong>。这是企业级的安全最佳实践。
+  </div>
+</div>
+
+<!-- ==================== v12 完成状态 ==================== -->
+<div class="section">
+  <div class="section-title">
+    <span class="issue-num num-solved">✓</span>
+    v12 已完成的修复（v1 报告后的改进）
+  </div>
+
+  <table>
+    <thead><tr><th style="width:80px">状态</th><th style="width:240px">功能</th><th>v12 实现情况</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-solved">已完成</span></td>
+        <td>appConfig 配置层</td>
         <td>
-          <strong>三层配置架构</strong>（行 3183-3254）：<br>
-          ① <code>appConfig</code> 统一运行时配置对象<br>
-          ② <code>_buildFallbackConfig()</code> 从内置常量生成默认配置<br>
-          ③ <code>_applyAppConfig()</code> 将配置写回 5 个工作变量（<code>MODULE_REQ_MAP</code>、<code>MODULE_ICONS</code>、<code>CONTENT_MODULE_MAP</code>、<code>COMPLAINT_TYPES</code>、<code>p3TestCases</code>）
+          <code>hmi_gen_v12_data.js</code> 中实现了完整的三层配置：<br>
+          <code>_buildFallbackConfig()</code> → <code>loadAppConfig()</code>（localStorage）→ <code>_applyAppConfig()</code> → <code>DATA</code> 工作变量。<br>
+          支持 <code>saveAppConfig()</code> / <code>importAppConfig(file, merge)</code> / <code>exportAppConfig()</code>。
+        </td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-solved">已完成</span></td>
+        <td>审核备注机制</td>
+        <td>
+          <code>grReviewNotes</code> + <code>grTcOriginalScenes</code> 对象。<br>
+          <code>openModifyModal()</code> / <code>openRejectModal()</code> 弹窗含 textarea。<br>
+          备注随 YAML/CSV 导出。
+        </td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-solved">已完成</span></td>
+        <td>YAML + CSV 导出</td>
+        <td>
+          <code>exportSingleTcYaml()</code> / <code>exportAllYaml()</code> / <code>exportReviewNotesCsv()</code>。<br>
+          含审核备注、原始场景快照、决策状态。
         </td>
       </tr>
     </tbody>
   </table>
-
-  <div class="ref-box">
-    <div class="ref-box-title">v11 核心代码 — appConfig 配置层</div>
-<pre><span class="cm">// 行 3186-3193: 统一配置数据结构</span>
-<span class="kw">const</span> CONFIG_STORAGE_KEY = <span class="str">'htmig_v11_config'</span>;
-<span class="kw">let</span> appConfig = {
-  modules: [],         <span class="cm">// [{ name, reqId, icon, keywords:[] }]</span>
-  complaintTypes: [],  <span class="cm">// [{ name, priority, keywords:[], desc }]</span>
-  tcSeeds: []          <span class="cm">// [{ id, reqId, module, complaintType, what, when, where, who, scene, conf, confVal }]</span>
-};
-
-<span class="cm">// 行 3196-3217: Fallback 生成</span>
-<span class="kw">function</span> <span class="fn">_buildFallbackConfig</span>() {
-  <span class="kw">const</span> moduleMap = {};
-  Object.<span class="fn">keys</span>(MODULE_REQ_MAP).<span class="fn">forEach</span>(name => {
-    moduleMap[name] = { name, reqId: MODULE_REQ_MAP[name], icon: MODULE_ICONS[name] || <span class="str">'📁'</span>, keywords: [] };
-  });
-  CONTENT_MODULE_MAP.<span class="fn">forEach</span>(entry => {
-    <span class="kw">if</span> (moduleMap[entry.module]) moduleMap[entry.module].keywords = [...entry.keywords];
-  });
-  <span class="kw">return</span> { modules: Object.<span class="fn">values</span>(moduleMap), complaintTypes: ..., tcSeeds: ... };
-}
-
-<span class="cm">// 行 3220-3244: 配置 → 工作变量同步</span>
-<span class="kw">function</span> <span class="fn">_applyAppConfig</span>() {
-  <span class="cm">// 动态重写 MODULE_REQ_MAP、MODULE_ICONS、CONTENT_MODULE_MAP、COMPLAINT_TYPES、p3TestCases</span>
-  MODULE_REQ_MAP = <span class="kw">new</span> <span class="fn">Object</span>(...);  <span class="cm">// 从 appConfig.modules 生成</span>
-  p3TestCases = appConfig.tcSeeds.<span class="fn">map</span>(s => ({
-    scene: s.scene || <span class="fn">_composeSceneFrom4W</span>(s),  <span class="cm">// 4W 自动拼接场景</span>
-    ...
-  }));
-}</pre>
-  </div>
-
-  <p style="font-size:13px"><strong>迁移建议：</strong>v12 应引入相同的 <code>appConfig</code> 模式，将 <code>hmi_gen_v12_data.js</code> 中的静态常量转为 fallback，同时支持 localStorage 持久化和 Excel 导入配置。v11 还支持通过 <code>loadAppConfig()</code>（行 3256）从 localStorage 读取已保存的配置，实现了<strong>配置热更新无需改代码</strong>。</p>
 </div>
 
-<!-- ==================== 问题2 ==================== -->
+<!-- ==================== 5 Critical 问题 ==================== -->
 <div class="section">
   <div class="section-title">
-    <span class="issue-num num-critical">2</span>
-    按钮事件为空壳 · 无真实生成逻辑
+    <span class="issue-num num-critical">!</span>
+    v12 仍待解决的 5 个 Critical 问题
     <span class="badge badge-critical">Critical</span>
   </div>
 
-  <table>
-    <thead><tr><th style="width:100px">对比维度</th><th>v12 现状</th><th>v11 解决方案</th></tr></thead>
-    <tbody>
-      <tr>
-        <td><span class="ver-tag ver-v12">v12</span></td>
-        <td>生成按钮仅 <code>console.log()</code> 或 <code>alert()</code>，无三阶段判断引擎实现。DecisionStream 组件存在但无数据驱动。</td>
-        <td>—</td>
-      </tr>
-      <tr>
-        <td><span class="ver-tag ver-v11">v11</span></td>
-        <td>—</td>
-        <td>
-          <code>runWikiJudgment(voices)</code>（行 1469-1580+）实现完整三阶段引擎：<br>
-          <strong>阶段 0</strong>：声音预处理（合并/拆分/去重），推送 preprocess DecisionEvent<br>
-          <strong>阶段 1</strong>：REQ 层判断，优先 LLM → 规则兜底，exact/partial/cross-req/new-req/clarify 五种判定<br>
-          <strong>阶段 2</strong>：TC 层决策，匹配种子用例库，生成置信度<br>
-          每阶段实时推送 <code>pushDecisionEvent()</code> 驱动 DecisionStream 卡片渲染
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="ref-box">
-    <div class="ref-box-title">v11 核心代码 — 三阶段引擎入口</div>
-<pre><span class="cm">// 行 1469-1488: 引擎主函数</span>
-<span class="kw">async function</span> <span class="fn">runWikiJudgment</span>(voices) {
-  <span class="cm">// 阶段 0：声音预处理</span>
-  <span class="fn">_dstreamSetActiveStage</span>(0);
-  <span class="kw">const</span> cleanedVoices = <span class="fn">_stage0_preprocess</span>(voices);
-  cleanedVoices.<span class="fn">forEach</span>(cv => {
-    <span class="fn">pushDecisionEvent</span>({
-      stage: 0, voiceId: cv.id, voiceContent: cv.content, voiceModel: cv.model,
-      kind: <span class="str">'preprocess'</span>, decisionText: ..., via: <span class="str">'rule'</span>
-    });
-  });
-
-  <span class="cm">// 阶段 1：REQ 层判断（LLM 优先 + 规则兜底）</span>
-  <span class="fn">_dstreamSetActiveStage</span>(1);
-  <span class="kw">for</span> (<span class="kw">const</span> v <span class="kw">of</span> cleanedVoices) {
-    <span class="kw">if</span> (llmConfig.enabled) {
-      <span class="cm">// 推送 processing 占位卡片，让用户立刻看到 "AI 在思考"</span>
-      <span class="kw">const</span> placeholderId = <span class="fn">pushDecisionEvent</span>({...});
-      <span class="cm">// 异步调用 LLM，完成后替换占位卡片</span>
-    } <span class="kw">else</span> {
-      stage1 = <span class="fn">_ruleJudgeStage1</span>(v);  <span class="cm">// 规则引擎</span>
-    }
-  }
-  <span class="cm">// 阶段 2：TC 层决策 ...</span>
-}</pre>
+  <!-- 问题 1 -->
+  <div style="margin-bottom:20px; padding-bottom:18px; border-bottom: 1px dashed var(--border);">
+    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+      <span class="issue-num num-critical">1</span>
+      三阶段引擎为空壳 · startGen() 仅 showToast
+      <span class="badge badge-critical">P0</span>
+    </h3>
+    <table>
+      <thead><tr><th style="width:70px">版本</th><th>现状</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="ver-tag ver-v12">v12</span></td>
+          <td><code>startGen()</code> 只做了 showToast + goPage('review')，无三阶段判断逻辑。DecisionStream 组件存在但无数据驱动。</td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-v11">v11</span></td>
+          <td>
+            <code>runWikiJudgment(voices)</code>（行 1469-1580+）：阶段 0 声音预处理 → 阶段 1 REQ 判断（<strong>LLM 优先 + 规则兜底</strong>）→ 阶段 2 TC 决策。每阶段推送 DecisionEvent 驱动卡片渲染。
+          </td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-pb">PB</span></td>
+          <td>
+            <strong>已有 LLM 代理端点</strong>：<code>POST /api/llm/stage1</code> 和 <code>POST /api/llm/stage2</code>。
+            后端已实现：system prompt 构造、模块词表注入、Wiki 状态感知、JSON 解析容错、llm_calls 日志自动写入。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="highlight-box-purple highlight-box">
+      <div class="highlight-box-title">v2 评估：工作量大幅降低</div>
+      v1 报告认为需要"移植整个引擎"，但现在有了 PocketBase 后端代理，v12 只需：<br>
+      ① 前端写一个 <code>async runWikiJudgment(voices)</code> 循环调用 <code>/api/llm/stage1</code> + <code>/api/llm/stage2</code><br>
+      ② 将返回结果推送 DecisionEvent 渲染卡片<br>
+      ③ 调用 <code>/api/wiki/persist</code> 写回知识库<br>
+      LLM prompt 工程、token 统计、成本估算等复杂逻辑<strong>已由后端完成</strong>。
+    </div>
   </div>
 
-  <p style="font-size:13px"><strong>迁移建议：</strong>v12 的 DecisionStream 组件已就绪，只需将 v11 的 <code>runWikiJudgment()</code> 引擎逻辑移植过来，替换按钮的空壳事件处理。注意 v11 使用 LLM 先推送 processing 占位卡片的 UX 模式，这个细节值得保留。</p>
-</div>
-
-<!-- ==================== 问题3 ==================== -->
-<div class="section">
-  <div class="section-title">
-    <span class="issue-num num-critical">3</span>
-    修改/驳回操作缺少原因输入
-    <span class="badge badge-critical">Critical</span>
+  <!-- 问题 2 -->
+  <div style="margin-bottom:20px; padding-bottom:18px; border-bottom: 1px dashed var(--border);">
+    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+      <span class="issue-num num-critical">2</span>
+      Graph / Wiki 页面为空白
+      <span class="badge badge-critical">P0</span>
+    </h3>
+    <table>
+      <thead><tr><th style="width:70px">版本</th><th>现状</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="ver-tag ver-v12">v12</span></td>
+          <td><code>PAGES.graph</code> 和 <code>PAGES.wiki</code> 不存在（undefined），点击导航显示"页面不存在"。HTML 中 D3.js 未引入。</td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-v11">v11</span></td>
+          <td>
+            <code>initGraph()</code>（行 2046-2200+）：D3.js v7.8.5 forceSimulation 四力模型，三种节点形状（Voice 双圆/REQ 六边形/TC 胶囊），三种边类型，拖拽交互 + 节点点击跳转。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="ref-box-teal ref-box">
+      <div class="ref-box-title">v2 补充：数据源可从 PocketBase 获取</div>
+      图谱数据不再需要手动构建。调用 <code>GET /api/wiki/state</code> 即可获得所有 REQ 的 voiceCount/tcCount/crossRefs，加上 voices 和 tcs 表数据，可直接构建 graphNodes + graphLinks。
+    </div>
   </div>
 
-  <table>
-    <thead><tr><th style="width:100px">对比维度</th><th>v12 现状</th><th>v11 解决方案</th></tr></thead>
-    <tbody>
-      <tr>
-        <td><span class="ver-tag ver-v12">v12</span></td>
-        <td>审核面板有修改/驳回按钮，但点击后直接执行，无 <code>&lt;textarea&gt;</code> 弹窗供用户填写修改原因或驳回理由。<code>grReviewNotes</code> 字段无处写入。</td>
-        <td>—</td>
-      </tr>
-      <tr>
-        <td><span class="ver-tag ver-v11">v11</span></td>
-        <td>—</td>
-        <td>
-          审核面板含 <code>rp-textarea</code> 和 <code>dp-textarea</code>（CSS 行 150-200），modify/reject 按钮点击时弹出内联文本框让用户输入备注，内容存入 <code>grReviewNotes[tc.id]</code>（行 2586），并持久化到 localStorage（行 2616）。审核备注最终随 YAML/Excel/CSV 导出。
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="ref-box">
-    <div class="ref-box-title">v11 核心代码 — 审核备注持久化</div>
-<pre><span class="cm">// 行 2581-2586: 审核状态管理</span>
-<span class="kw">let</span> grReviewState = {};      <span class="cm">// { tcId: 'accept'|'modify'|'reject'|'pending' }</span>
-<span class="kw">let</span> grTcOriginalScenes = {}; <span class="cm">// { tcId: originalScene }</span>
-<span class="kw">let</span> grReviewNotes = {};     <span class="cm">// { tcId: '用户填写的审核备注' }</span>
-
-<span class="cm">// 行 2611-2623: 持久化时同步写入备注</span>
-<span class="kw">function</span> <span class="fn">_doPersist</span>() {
-  localStorage.<span class="fn">setItem</span>(<span class="str">'htmig_v11_review_notes'</span>, JSON.<span class="fn">stringify</span>(grReviewNotes || {}));
-  <span class="cm">// ...</span>
-}
-
-<span class="cm">// 行 3027-3044: YAML 导出包含审核备注</span>
-<span class="kw">function</span> <span class="fn">_tcToYaml</span>(tc) {
-  <span class="kw">const</span> note = grReviewNotes[tc.id] || <span class="str">''</span>;
-  <span class="kw">const</span> decision = grReviewState[tc.id] || <span class="str">'pending'</span>;
-  <span class="cm">// note ? '  review_note: "' + escape(note) + '"' : null</span>
-}</pre>
+  <!-- 问题 3 -->
+  <div style="margin-bottom:20px; padding-bottom:18px; border-bottom: 1px dashed var(--border);">
+    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+      <span class="issue-num num-critical">3</span>
+      数据仅 localStorage · 无后端持久化
+      <span class="badge badge-critical">P0</span>
+    </h3>
+    <table>
+      <thead><tr><th style="width:70px">版本</th><th>现状</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="ver-tag ver-v12">v12</span></td>
+          <td>
+            <code>saveAppConfig()</code> 仅写 localStorage（单 key: <code>hmi_gen_v12_config</code>）。<br>
+            无 voices/tcs/decisions 的独立持久化。清浏览器数据即丢失。
+          </td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-v11">v11</span></td>
+          <td>
+            <code>persistState()</code> 防抖 200ms → 6 个 localStorage key + PocketBase API。<br>
+            PocketBase：voices 表 CRUD + decisions 不可变写入 + wiki/persist 批量写回。
+          </td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-pb">PB</span></td>
+          <td>
+            PocketBase 提供标准 CRUD API：<br>
+            <code>GET/POST/PATCH/DELETE /api/collections/{name}/records</code><br>
+            支持 filter/sort/perPage 分页。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="highlight-box-purple highlight-box">
+      <div class="highlight-box-title">v2 评估：直接替换为 PocketBase API 调用</div>
+      v12 当前所有数据操作（voices/tcs/reqs）都可改为 PocketBase CRUD：<br>
+      · <code>loadAppConfig()</code> → <code>fetch('/api/collections/voices/records?perPage=500')</code><br>
+      · <code>decide()</code> → <code>POST /api/collections/decisions/records</code><br>
+      · <code>addVoiceManual()</code> → <code>POST /api/collections/voices/records</code><br>
+      · localStorage 降级为离线缓存（PocketBase 不可用时 fallback）。
+    </div>
   </div>
 
-  <p style="font-size:13px"><strong>迁移建议：</strong>v12 需要在 modify/reject 按钮事件中增加 <code>textarea</code> 弹窗（或内联展开），参考 v11 的 CSS 类 <code>rp-textarea</code>/<code>dp-textarea</code> 样式。同时添加 <code>grReviewNotes</code> 对象和持久化逻辑，确保导出时能包含审核备注。</p>
-</div>
-
-<!-- ==================== 问题4 ==================== -->
-<div class="section">
-  <div class="section-title">
-    <span class="issue-num num-critical">4</span>
-    导出功能全部为空壳
-    <span class="badge badge-critical">Critical</span>
+  <!-- 问题 4 -->
+  <div style="margin-bottom:20px; padding-bottom:18px; border-bottom: 1px dashed var(--border);">
+    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+      <span class="issue-num num-critical">4</span>
+      Excel 三 Sheet 导出未实现
+      <span class="badge badge-high">P1</span>
+    </h3>
+    <table>
+      <thead><tr><th style="width:70px">版本</th><th>现状</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="ver-tag ver-v12">v12</span></td>
+          <td>XLSX.js CDN 已引入（HTML 行 347），但无 <code>exportAllExcel()</code> 函数。仅有 YAML + CSV 导出。</td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-v11">v11</span></td>
+          <td>
+            <code>exportAllExcel()</code>（行 3070-3134）：<br>
+            Sheet 1: 用例清单（ID/模块/置信度/来源/场景/审核决策/备注）<br>
+            Sheet 2: 审核统计（采纳率等指标）<br>
+            Sheet 3: 关系明细（Voice → REQ → TC 三元组）
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 
-  <table>
-    <thead><tr><th style="width:100px">对比维度</th><th>v12 现状</th><th>v11 解决方案</th></tr></thead>
-    <tbody>
-      <tr>
-        <td><span class="ver-tag ver-v12">v12</span></td>
-        <td>导出按钮仅 <code>alert('功能开发中')</code>，无任何实际导出能力。</td>
-        <td>—</td>
-      </tr>
-      <tr>
-        <td><span class="ver-tag ver-v11">v11</span></td>
-        <td>—</td>
-        <td>
-          实现 <strong>4 种导出</strong>（行 3026-3181）：<br>
-          ① <code>exportSingleTcYaml()</code> / <code>exportAllYaml()</code> — 单条/全部 YAML<br>
-          ② <code>exportAllExcel()</code> — XLSX 三 Sheet（用例清单 + 审核统计 + 关系明细）<br>
-          ③ <code>exportReviewNotesCsv()</code> — 审核明细 CSV<br>
-          ④ <code>downloadVoiceTemplate()</code> — 声音导入模板 Excel<br>
-          均通过 <code>_downloadBlob()</code>（行 3153）统一下载
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="ref-box">
-    <div class="ref-box-title">v11 核心代码 — Excel 多 Sheet 导出</div>
-<pre><span class="cm">// 行 3070-3134: exportAllExcel()</span>
-<span class="kw">function</span> <span class="fn">exportAllExcel</span>() {
-  <span class="kw">const</span> wb = XLSX.utils.<span class="fn">book_new</span>();
-
-  <span class="cm">// Sheet 1: 用例清单（含 ID/模块/置信度/来源/场景/审核决策/备注）</span>
-  <span class="kw">const</span> tcRows = [[<span class="str">'ID'</span>,<span class="str">'模块'</span>,<span class="str">'置信度'</span>,<span class="str">'来源声音'</span>,<span class="str">'场景描述'</span>,<span class="str">'是否修改'</span>,<span class="str">'原始描述'</span>,<span class="str">'审核决策'</span>,<span class="str">'审核备注'</span>]];
-  list.<span class="fn">forEach</span>(tc => { tcRows.<span class="fn">push</span>([...]); });
-  XLSX.utils.<span class="fn">book_append_sheet</span>(wb, ws1, <span class="str">'测试用例'</span>);
-
-  <span class="cm">// Sheet 2: 审核统计（采纳率等指标）</span>
-  XLSX.utils.<span class="fn">book_append_sheet</span>(wb, ws2, <span class="str">'审核统计'</span>);
-
-  <span class="cm">// Sheet 3: 关系明细（Voice → REQ → TC 三元组）</span>
-  XLSX.utils.<span class="fn">book_append_sheet</span>(wb, ws3, <span class="str">'关系明细'</span>);
-
-  XLSX.<span class="fn">writeFile</span>(wb, <span class="str">'HMI_GEN_报告_'</span> + <span class="fn">_dateTag</span>() + <span class="str">'.xlsx'</span>);
-}
-
-<span class="cm">// 行 3153-3160: 通用下载工具</span>
-<span class="kw">function</span> <span class="fn">_downloadBlob</span>(content, filename, mime) {
-  <span class="kw">const</span> blob = <span class="kw">new</span> <span class="fn">Blob</span>([content], {type: mime});
-  <span class="kw">const</span> url = URL.<span class="fn">createObjectURL</span>(blob);
-  <span class="kw">const</span> a = document.<span class="fn">createElement</span>(<span class="str">'a'</span>);
-  a.href = url; a.download = filename;
-  a.<span class="fn">click</span>();
-}</pre>
-  </div>
-
-  <p style="font-size:13px"><strong>迁移建议：</strong>v12 已引入 XLSX.js CDN（可确认），直接复用 v11 的 4 个导出函数和 <code>_downloadBlob</code> 工具函数即可。注意 v11 Excel 导出包含审核备注和关系明细，需确保 v12 的 <code>grReviewNotes</code> 和 <code>graphLinks</code> 数据源已就绪。</p>
-</div>
-
-<!-- ==================== 问题5 ==================== -->
-<div class="section">
-  <div class="section-title">
-    <span class="issue-num num-critical">5</span>
-    关系图谱为占位图 · 无真实数据驱动
-    <span class="badge badge-critical">Critical</span>
-  </div>
-
-  <table>
-    <thead><tr><th style="width:100px">对比维度</th><th>v12 现状</th><th>v11 解决方案</th></tr></thead>
-    <tbody>
-      <tr>
-        <td><span class="ver-tag ver-v12">v12</span></td>
-        <td>图谱页面为静态 SVG 或简单示意图，无 D3.js 力导向布局，无交互（点击节点跳转），数据非实时。</td>
-        <td>—</td>
-      </tr>
-      <tr>
-        <td><span class="ver-tag ver-v11">v11</span></td>
-        <td>—</td>
-        <td>
-          <code>initGraph()</code>（行 2046-2200+）完整实现：<br>
-          · D3.js <code>forceSimulation</code> 四力模型（link/manyBody/center/collide）<br>
-          · 三种节点类型（Voice 双圆/REQ 六边形/TC 胶囊形）+ 三种边类型（归属/新建/派生）<br>
-          · 拖拽交互、节点点击跳转（<code>jumpToVoiceRow()</code>/<code>jumpToTC()</code>/<code>jumpToREQ()</code>）<br>
-          · SVG defs（径向渐变、辉光滤镜、箭头标记、网格背景）
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="ref-box">
-    <div class="ref-box-title">v11 核心代码 — D3 力导向图</div>
-<pre><span class="cm">// 行 2046-2124: 初始化力导向图</span>
-<span class="kw">function</span> <span class="fn">initGraph</span>() {
-  <span class="kw">const</span> svg = d3.<span class="fn">select</span>(<span class="str">'#relation-graph'</span>);
-  <span class="cm">// 空状态提示</span>
-  <span class="kw">if</span> (graphNodes.length === 0) {
-    svg.<span class="fn">append</span>(<span class="str">'text'</span>).<span class="fn">text</span>(<span class="str">'◈ 暂无关系数据'</span>); <span class="kw">return</span>;
-  }
-
-  <span class="cm">// 四力模型</span>
-  <span class="kw">const</span> sim = d3.<span class="fn">forceSimulation</span>(nodes)
-    .<span class="fn">force</span>(<span class="str">'link'</span>, d3.<span class="fn">forceLink</span>(links).id(d => d.id).distance(130).strength(0.7))
-    .<span class="fn">force</span>(<span class="str">'charge'</span>, d3.<span class="fn">forceManyBody</span>().strength(-420))
-    .<span class="fn">force</span>(<span class="str">'center'</span>, d3.<span class="fn">forceCenter</span>(width/2, height/2))
-    .<span class="fn">force</span>(<span class="str">'collide'</span>, d3.<span class="fn">forceCollide</span>().radius(38))
-    .alphaDecay(0.022);
-
-  <span class="cm">// 三种节点形状 + 拖拽</span>
-  nodeG.<span class="fn">call</span>(d3.<span class="fn">drag</span>().on(<span class="str">'start'</span>,...).on(<span class="fn">'drag</span>,...).on(<span class="fn">'end</span>,...));
-
-  <span class="cm">// 节点点击 → 跳转到对应页面</span>
-  nodeG.<span class="fn">on</span>(<span class="str">'click'</span>, (e, d) => {
-    <span class="kw">if</span> (d.type === <span class="str">'voice'</span>) <span class="fn">jumpToVoiceRow</span>(d.id);
-    <span class="kw">else if</span> (d.type === <span class="str">'req'</span>) <span class="fn">jumpToREQ</span>(d.id);
-    <span class="kw">else if</span> (d.type === <span class="str">'tc'</span>) <span class="fn">jumpToTC</span>(d.id);
-  });
-}</pre>
-  </div>
-
-  <p style="font-size:13px"><strong>迁移建议：</strong>v12 需要引入 D3.js CDN（v11 用的 v7.8.5），将 <code>initGraph()</code> 函数整体移植。关键在于数据源 <code>graphNodes</code>/<code>graphLinks</code> 需由三阶段引擎生成后自动更新，而非静态数据。v11 的空状态处理和节点跳转交互也是答辩加分项。</p>
-</div>
-
-<!-- ==================== 额外发现 ==================== -->
-<div class="section">
-  <div class="section-title">
-    附加参考 · v11 中值得迁移的其他能力
-    <span class="badge badge-high">High</span>
-  </div>
-
-  <table>
-    <thead><tr><th style="width:180px">能力</th><th>v11 实现位置</th><th>说明</th></tr></thead>
-    <tbody>
-      <tr>
-        <td>localStorage 持久化</td>
-        <td>行 2588-2680</td>
-        <td><code>persistState()</code> 防抖 200ms 写入声音/审核/用例数据 + 决策历史日志（最多 500 条）+ LLM 调用日志（最多 200 条含 token 统计和成本估算）</td>
-      </tr>
-      <tr>
-        <td>声音 CSV/Excel 导入</td>
-        <td>行 2588-2857</td>
-        <td><code>handleVoiceImport()</code> 使用 XLSX.js 读取 Excel，支持灵活列别名匹配（ID/编号/序号 → id），CSV BOM 兼容导出</td>
-      </tr>
-      <tr>
-        <td>声音→模块自动推断</td>
-        <td>行 1439-1458</td>
-        <td><code>inferModuleFromContent()</code> 基于 <code>CONTENT_MODULE_MAP</code> 关键词匹配，9 大模块 + 30+ 关键词</td>
-      </tr>
-      <tr>
-        <td>LLM 集成层</td>
-        <td>行 1497-1550</td>
-        <td>GLM-5 API 调用 + reasoning/thinking 抽屉展示 + processing 占位卡片 + token 计数 + 成本统计</td>
-      </tr>
-      <tr>
-        <td>配置 Excel 化</td>
-        <td>行 3183-3280+</td>
-        <td>模块/投诉类型/种子用例均可通过 Excel 导入导出，<code>_validateConfig()</code> 校验结构完整性</td>
-      </tr>
-      <tr>
-        <td>JSON 全量备份</td>
-        <td>行 2830+</td>
-        <td><code>exportAllLocalData()</code> 一键导出全部 localStorage 数据为 JSON 文件</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<hr class="divider">
-
-<!-- ==================== 设计亮点深度分析 ==================== -->
-<div class="section">
-  <div class="section-title">
-    设计亮点深度分析 · v11 中 5 个被低估的设计模式
-  </div>
-  <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">以上 5 个 Critical 问题之外，v11 源码中还有多个设计细节值得 v12 借鉴——这些不是"缺什么补什么"，而是<strong>做好做精的加分项</strong>，对答辩展示尤其有价值。</p>
-
-  <!-- 亮点 1 -->
+  <!-- 问题 5 -->
   <div style="margin-bottom:20px;">
     <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
-      <span class="issue-num" style="background:var(--accent)">A</span>
-      Excel 列别名匹配机制 — 容错导入的典范
+      <span class="issue-num num-critical">5</span>
+      声音 Excel 导入为空壳
+      <span class="badge badge-high">P1</span>
     </h3>
-    <p style="font-size:13px;">用户导入的 Excel 列名千差万别：「编号」vs「ID」vs「序号」vs「声音 ID」，v11 通过 <code>VOICE_COLUMN_ALIASES</code> 做了统一的别名映射，对每个语义字段维护一组等价列名。</p>
-    <div class="ref-box">
-      <div class="ref-box-title">v11 核心代码 — 列别名匹配（行 2861-2875）</div>
-<pre><span class="kw">const</span> VOICE_COLUMN_ALIASES = {
-  id:      [<span class="str">'ID'</span>,<span class="str">'id'</span>,<span class="str">'声音ID'</span>,<span class="str">'声音 ID'</span>,<span class="str">'编号'</span>,<span class="str">'序号'</span>],
-  model:   [<span class="str">'车型'</span>,<span class="str">'型号'</span>,<span class="str">'车辆'</span>,<span class="str">'model'</span>,<span class="str">'Model'</span>],
-  content: [<span class="str">'声音内容'</span>,<span class="str">'内容'</span>,<span class="str">'投诉内容'</span>,<span class="str">'原话'</span>,<span class="str">'content'</span>,<span class="str">'description'</span>],
-  channel: [<span class="str">'渠道'</span>,<span class="str">'来源'</span>,<span class="str">'channel'</span>,<span class="str">'source'</span>],
+    <table>
+      <thead><tr><th style="width:70px">版本</th><th>现状</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="ver-tag ver-v12">v12</span></td>
+          <td><code>handleVoiceImport()</code> 仅 showToast('需在完整版中启用 XLSX.js')，实际 XLSX.js CDN 已加载。</td>
+        </tr>
+        <tr>
+          <td><span class="ver-tag ver-v11">v11</span></td>
+          <td>
+            <code>handleVoiceImport()</code>（行 2588-2857）：XLSX.js 读取 Excel，<strong>VOICE_COLUMN_ALIASES 列别名匹配</strong>（支持 6 种字段 × 5-6 种写法），CSV BOM 兼容，合并/替换选择，ID 冲突自动重编号。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== 设计亮点 ==================== -->
+<div class="section">
+  <div class="section-title">
+    设计亮点 · v11 中 5 个被低估的设计模式
+  </div>
+
+  <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+    <span class="issue-num num-info">A</span>
+    Excel 列别名匹配 — 容错导入
+  </h3>
+  <p style="font-size:13px">用户导入的 Excel 列名千差万别：「编号」vs「ID」vs「序号」，v11 通过 <code>VOICE_COLUMN_ALIASES</code> 统一别名映射。</p>
+  <pre><span class="kw">const</span> VOICE_COLUMN_ALIASES = {
+  id:      [<span class="str">'ID'</span>,<span class="str">'id'</span>,<span class="str">'声音ID'</span>,<span class="str">'编号'</span>,<span class="str">'序号'</span>],
+  model:   [<span class="str">'车型'</span>,<span class="str">'型号'</span>,<span class="str">'车辆'</span>,<span class="str">'model'</span>],
+  content: [<span class="str">'声音内容'</span>,<span class="str">'内容'</span>,<span class="str">'投诉内容'</span>,<span class="str">'原话'</span>,<span class="str">'content'</span>],
+  channel: [<span class="str">'渠道'</span>,<span class="str">'来源'</span>,<span class="str">'channel'</span>],
   status:  [<span class="str">'状态'</span>,<span class="str">'status'</span>,<span class="str">'处理状态'</span>]
-};
+};</pre>
 
-<span class="kw">function</span> <span class="fn">_matchCol</span>(headers, aliases) {
-  <span class="kw">for</span> (<span class="kw">const</span> h <span class="kw">of</span> headers) {
-    <span class="kw">if</span> (aliases.some(a => h && h.toString().trim() === a)) <span class="kw">return</span> h;
-  }
-  <span class="kw">return null</span>;
-}</pre>
-    </div>
-    <div class="highlight-box">
-      <div class="highlight-box-title">答辩加分点</div>
-      导入时的容错设计体现了对真实用户场景的思考：不同团队用不同格式的 Excel，系统应该<strong>适配用户而非强迫用户适配系统</strong>。此外还有合并/替换选择（confirm 弹窗）、ID 冲突自动重编号（<code>_seqAvail()</code>）、空行跳过计数等细节。
-    </div>
-  </div>
+  <hr class="divider">
 
-  <!-- 亮点 2 -->
-  <div style="margin-bottom:20px;">
-    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
-      <span class="issue-num" style="background:var(--accent)">B</span>
-      LLM 占位卡片模式 — 异步等待时的 UX 设计
-    </h3>
-    <p style="font-size:13px;">调用 LLM 通常需要数秒等待，v11 的处理方式是<strong>先推送一张 processing 占位卡片</strong>到 DecisionStream，LLM 返回后再移除占位、插入真实结果卡片。用户不会面对空白等待。</p>
-    <div class="ref-box">
-      <div class="ref-box-title">v11 核心代码 — LLM 占位卡片（行 1497-1526）</div>
-<pre><span class="cm">// 先推一个 "正在调用 LLM" 的 processing 占位卡片</span>
+  <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+    <span class="issue-num num-info">B</span>
+    LLM 占位卡片 — 异步等待 UX
+  </h3>
+  <p style="font-size:13px">调用 LLM 前推送 processing 占位卡片，返回后替换。用户不会面对空白等待。</p>
+  <pre><span class="cm">// 先推 "正在调用 LLM" 占位卡片</span>
 <span class="kw">const</span> placeholderId = <span class="fn">pushDecisionEvent</span>({
-  stage: 1, voiceId: v.id, voiceContent: v.content, voiceModel: v.model,
+  stage: <span class="num">1</span>, voiceId: v.id, voiceContent: v.content,
   kind: <span class="str">'processing'</span>,
-  decisionText: <span class="str">'正在调用 '</span> + (llmConfig.model || <span class="str">'GLM-5'</span>) + <span class="str">'…'</span>,
-  via: llmConfig.backendMode ? <span class="str">'llm-pending'</span> : <span class="str">'llm-direct-pending'</span>,
-  _placeholder: true
+  decisionText: <span class="str">'正在调用 DeepSeek…'</span>,
+  _placeholder: <span class="kw">true</span>
 });
-<span class="kw">const</span> t0 = Date.now();
 <span class="kw">const</span> llmRes = <span class="kw">await</span> <span class="fn">llmStage1Judgment</span>(v);
-<span class="cm">// LLM 返回后移除占位</span>
-<span class="fn">_dstreamRemoveEvent</span>(placeholderId);
-<span class="cm">// 插入真实决策事件（含 reasoning/thinking/tokens/elapsedMs）</span></pre>
-    </div>
-    <div class="highlight-box">
-      <div class="highlight-box-title">答辩加分点</div>
-      这是 <strong>Optimistic UI</strong> 思想在异步 AI 调用中的变体：不等结果就先渲染状态。对答辩来说，能展示你理解"等待体验"这个 UX 要点。v11 还在每张卡片上附带 <code>tokens</code>、<code>elapsedMs</code>、<code>via</code> 等元信息，体现可观测性设计。
-    </div>
-  </div>
+<span class="fn">_dstreamRemoveEvent</span>(placeholderId);  <span class="cm">// LLM 返回后移除占位</span></pre>
 
-  <!-- 亮点 3 -->
-  <div style="margin-bottom:20px;">
-    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
-      <span class="issue-num" style="background:var(--accent)">C</span>
-      防抖持久化 + 审计日志 — 企业级数据管理意识
-    </h3>
-    <p style="font-size:13px;">v11 的 <code>persistState()</code> 使用 200ms 防抖，避免频繁写入 localStorage。同时维护了两套独立日志：<strong>决策历史</strong>（每次审核动作）和 <strong>LLM 调用日志</strong>（每次 LLM 请求），均带时间戳和上限裁剪。</p>
-    <div class="ref-box">
-      <div class="ref-box-title">v11 核心代码 — 持久化 + 双日志（行 2607-2676）</div>
-<pre><span class="cm">// 防抖写入</span>
-<span class="kw">function</span> <span class="fn">persistState</span>() {
-  <span class="kw">if</span> (_persistTimer) clearTimeout(_persistTimer);
-  _persistTimer = setTimeout(_doPersist, <span class="str">200</span>);
-}
+  <hr class="divider">
 
-<span class="cm">// 决策历史（审核操作审计）</span>
-<span class="kw">function</span> <span class="fn">appendDecisionHistory</span>(entry) {
-  arr.push({ ts: Date.now(), ...entry });
-  <span class="kw">while</span> (arr.length > <span class="str">500</span>) arr.shift();  <span class="cm">// 上限 500 条</span>
-}
+  <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+    <span class="issue-num num-info">C</span>
+    防抖持久化 + 不可变审计日志
+  </h3>
+  <p style="font-size:13px">
+    v11 前端 <code>persistState()</code> 200ms 防抖写 localStorage。<br>
+    PocketBase <code>decisions</code> 表和 <code>llm_calls</code> 表设为不可变（updateRule=null, deleteRule=null），确保审计日志完整性。
+  </p>
 
-<span class="cm">// LLM 调用日志（含 token + 成本估算）</span>
-<span class="kw">function</span> <span class="fn">getLlmStats</span>() {
-  <span class="kw">const</span> costYuan = (totalIn/1000)*0.005 + (totalOut/1000)*0.05;
-  <span class="kw">return</span> { calls, success, failure, totalInputTokens, totalOutputTokens,
-           avgElapsedMs, estCostYuan: costYuan.toFixed(<span class="str">4</span>) };
-}</pre>
-    </div>
-    <div class="highlight-box">
-      <div class="highlight-box-title">答辩加分点</div>
-      防抖是前端性能优化的基本功，而审计日志 + 成本估算体现了<strong>面向生产环境</strong>的意识。答辩时可以说："系统不仅生成用例，还能追溯每一次决策历史，并统计 LLM 调用成本"。这在 FDE 培训答辩中是明确的加分项。
-    </div>
-  </div>
+  <hr class="divider">
 
-  <!-- 亮点 4 -->
-  <div style="margin-bottom:20px;">
-    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
-      <span class="issue-num" style="background:var(--accent)">D</span>
-      三步流程引导 + 进度状态联动 — 用户旅程设计
-    </h3>
-    <p style="font-size:13px;">v11 header 中的三步进度条（声音管理 → 生成&审核 → 报告输出）不只是导航，还与页面状态联动：<code>switchPage()</code> 自动标记已完成的步骤（<code>.completed</code>），切换到特定页面时自动触发初始化逻辑（如切到"生成&审核"时自动开始生成，切到"报告"时刷新 KPI）。</p>
-    <div class="ref-box">
-      <div class="ref-box-title">v11 核心代码 — 页面切换联动（行 1126-1155）</div>
-<pre><span class="kw">function</span> <span class="fn">switchPage</span>(page) {
-  <span class="cm">// 进度条已完成状态</span>
-  pages.<span class="fn">forEach</span>((p, idx) => {
-    idx < currentIdx ? step.classList.<span class="fn">add</span>(<span class="str">'completed'</span>) : step.classList.<span class="fn">remove</span>(<span class="str">'completed'</span>);
-  });
-  <span class="cm">// 切到生成&审核：若有 P1 传入声音自动生成</span>
-  <span class="kw">if</span> (page === <span class="str">'genreview'</span>) {
-    <span class="fn">initModuleListP3</span>();
-    <span class="kw">if</span> (window.selectedFromP1?.length > 0) {
-      setTimeout(startGenerationGR, <span class="str">300</span>);
-    }
-  }
-  <span class="cm">// 切到报告：刷新 KPI + 图表</span>
-  <span class="kw">if</span> (page === <span class="str">'report'</span>) {
-    <span class="fn">updateReportKPI</span>();
-    setTimeout(initReportCharts, <span class="str">100</span>);
-  }
-}</pre>
-    </div>
-    <div class="highlight-box">
-      <div class="highlight-box-title">答辩加分点</div>
-      这体现了<strong>以用户任务流程为中心</strong>的设计理念——不是堆砌功能页面，而是设计一条清晰的用户旅程。进度条 + 自动触发 + 状态联动，让用户不需要思考"下一步该做什么"。
-    </div>
-  </div>
+  <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+    <span class="issue-num num-info">D</span>
+    三步流程引导 + 状态联动
+  </h3>
+  <p style="font-size:13px">
+    v11 header 三步进度条（声音管理 → 生成&审核 → 报告输出）与页面状态联动：切换页面时自动标记已完成步骤、触发初始化逻辑（切到报告时刷新 KPI + 图表）。
+  </p>
 
-  <!-- 亮点 5 -->
-  <div style="margin-bottom:20px;">
-    <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
-      <span class="issue-num" style="background:var(--accent)">E</span>
-      用例手动新增 + 重新生成 — 审核环节的闭环能力
-    </h3>
-    <p style="font-size:13px;">审核阶段不只是"接受/修改/驳回"，v11 还提供：<strong>手动新增用例</strong>（<code>openAddTcModal()</code>）和<strong>重新生成场景描述</strong>（<code>regenerateTC()</code>）。重新生成后自动保留原始场景（<code>grTcOriginalScenes</code>），重置审核状态，并以视觉反馈（黄色闪烁）提示用户变更。</p>
-    <div class="ref-box">
-      <div class="ref-box-title">v11 核心代码 — 用例重新生成（行 2985-3010）</div>
-<pre><span class="kw">function</span> <span class="fn">regenerateTC</span>(tcId) {
-  <span class="cm">// mock：基于模块生成不同的"重写"版本</span>
-  <span class="kw">const</span> variants = {
-    <span class="str">'蓝牙'</span>: <span class="str">'蓝牙连接稳定性测试（重写版）——iOS 16+ / Android 13+ ...'</span>,
-    <span class="str">'语音助手'</span>: <span class="str">'语音识别准确率测试（重写版）——10 种方言场景下...'</span>,
-    <span class="str">'导航'</span>: <span class="str">'导航播报音量自适应（重写版）——车速变化时...'</span>,
-    ...
-  };
-  <span class="cm">// 保留原始场景</span>
-  <span class="kw">if</span> (!grTcOriginalScenes[tcId]) grTcOriginalScenes[tcId] = tc.scene;
-  tc.scene = newScene;
-  <span class="cm">// 重置审核状态</span>
-  grReviewState[tcId] = null;
-  <span class="kw">delete</span> grReviewNotes[tcId];
-  <span class="cm">// 视觉反馈：黄色闪烁提示变更</span>
-  sceneEl.style.transition = <span class="str">'background 0.5s'</span>;
-  sceneEl.style.background = <span class="str">'rgba(196,126,0,0.15)'</span>;
-}</pre>
-    </div>
-    <div class="highlight-box">
-      <div class="highlight-box-title">答辩加分点</div>
-      审核环节的"重新生成"功能体现了<strong>人机协作闭环</strong>：AI 生成 → 人工审核 → 不满意 → 重新生成 → 再次审核。这比单纯的"接受/拒绝"二选一完整得多。原始场景保留 + 审核状态重置的设计也体现了对数据完整性的考虑。
-    </div>
-  </div>
+  <hr class="divider">
+
+  <h3 style="font-size:14px; font-weight:700; margin-bottom:8px;">
+    <span class="issue-num num-info">E</span>
+    用例手动新增 + 重新生成 — 审核闭环
+  </h3>
+  <p style="font-size:13px">
+    审核不只有接受/修改/拒绝，还有：手动新增用例 + 重新生成场景描述（保留原始场景 → 重置审核状态 → 黄色闪烁提示变更）。这体现了人机协作闭环。
+  </p>
 </div>
 
-<!-- ==================== 迁移路线 ==================== -->
+<!-- ==================== 优先级进度条 ==================== -->
 <div class="section">
-  <div class="section-title">推荐迁移路线（含设计亮点）</div>
+  <div class="section-title">FDE 答辩修复优先级</div>
+
+  <div class="priority-bar">
+    <div class="priority-seg p-done">✓ 已完成 (3)</div>
+    <div class="priority-seg p-p0">P0 必须马上修 (3)</div>
+    <div class="priority-seg p-p1">P1 推荐修复 (2)</div>
+    <div class="priority-seg p-nice">Nice 加分项 (3)</div>
+  </div>
+
+  <table>
+    <thead><tr><th style="width:50px">优先级</th><th style="width:240px">任务</th><th>具体内容</th><th style="width:80px">复杂度</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-solved">Done</span></td>
+        <td>appConfig 配置层</td>
+        <td>三层数据源（fallback → localStorage → DATA）+ 导入/导出</td>
+        <td style="color:var(--green)">✓</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-solved">Done</span></td>
+        <td>审核备注机制</td>
+        <td>grReviewNotes + textarea 弹窗 + 导出时携带备注</td>
+        <td style="color:var(--green)">✓</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-solved">Done</span></td>
+        <td>YAML/CSV 导出</td>
+        <td>exportAllYaml / exportSingleTcYaml / exportReviewNotesCsv</td>
+        <td style="color:var(--green)">✓</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-critical">P0</span></td>
+        <td><strong>接入 PocketBase API</strong></td>
+        <td>loadAppConfig 改为 fetch API 加载数据；decide() 写入 decisions 表；addVoiceManual 写入 voices 表；localStorage 降级为离线缓存</td>
+        <td><span class="badge badge-high">中等</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-critical">P0</span></td>
+        <td><strong>三阶段引擎</strong></td>
+        <td>startGen() → runWikiJudgment() 调用 /api/llm/stage1 + /api/llm/stage2，DecisionEvent 驱动卡片渲染，完成后调 /api/wiki/persist 写回知识库</td>
+        <td><span class="badge badge-critical">高</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-critical">P0</span></td>
+        <td><strong>Graph + Wiki 页面</strong></td>
+        <td>引入 D3.js CDN，移植 initGraph() 力导向图；数据源从 /api/wiki/state + voices + tcs 构建 graphNodes/graphLinks</td>
+        <td><span class="badge badge-high">中等</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-high">P1</span></td>
+        <td>Excel 三 Sheet 导出</td>
+        <td>exportAllExcel()：Sheet1 用例清单 + Sheet2 审核统计 + Sheet3 关系明细（XLSX.js CDN 已引入）</td>
+        <td><span class="badge badge-info">低</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-high">P1</span></td>
+        <td>声音 Excel 导入</td>
+        <td>handleVoiceImport() 实现 XLSX.js 读取 + VOICE_COLUMN_ALIASES 列别名匹配 + 合并/替换选择</td>
+        <td><span class="badge badge-info">低</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-info">Nice</span></td>
+        <td>LLM 配置管理 UI</td>
+        <td>通过 /api/admin/llm-config 读写 LLM 配置，含 apiKey 脱敏展示 + 调优参数编辑</td>
+        <td><span class="badge badge-info">低</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-info">Nice</span></td>
+        <td>LLM 统计面板</td>
+        <td>/api/llm/stats 展示：累计调用次数 / token 消耗 / 成本估算 ¥</td>
+        <td><span class="badge badge-info">低</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-info">Nice</span></td>
+        <td>用例重新生成</td>
+        <td>regenerateTC()：保留原始场景 → 生成新版本 → 重置审核状态 → 黄色闪烁提示</td>
+        <td><span class="badge badge-info">低</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ==================== 推荐迁移路线 ==================== -->
+<div class="section">
+  <div class="section-title">推荐迁移路线（8 步）</div>
 
   <div class="migration-step">
-    <div class="step-num">1</div>
-    <div class="step-content"><strong>引入 appConfig 配置层</strong> — 将 <code>hmi_gen_v12_data.js</code> 改为 fallback 源，新增 <code>appConfig</code> 对象 + <code>_buildFallbackConfig()</code> + <code>_applyAppConfig()</code>。优先级最高，因为所有下游逻辑都依赖数据可配置化。</div>
+    <div class="step-num" style="background:var(--green)">✓</div>
+    <div class="step-content" style="text-decoration:line-through; color:var(--muted);"><strong>引入 appConfig 配置层</strong> — _buildFallbackConfig + loadAppConfig + saveAppConfig + import/export。已完成。</div>
   </div>
   <div class="migration-step">
-    <div class="step-num">2</div>
-    <div class="step-content"><strong>移植三阶段引擎</strong> — 将 <code>runWikiJudgment()</code> 从 v11 移植，接入 v12 的 DecisionStream 组件。这是整个系统的核心业务逻辑，无引擎则一切按钮都是空壳。</div>
+    <div class="step-num" style="background:var(--green)">✓</div>
+    <div class="step-content" style="text-decoration:line-through; color:var(--muted);"><strong>补全审核备注机制</strong> — grReviewNotes + textarea 弹窗 + 导出携带备注。已完成。</div>
   </div>
   <div class="migration-step">
-    <div class="step-num">3</div>
-    <div class="step-content"><strong>补全审核备注机制</strong> — 添加 <code>grReviewNotes</code> + textarea 弹窗 + 持久化。这是答辩评委最可能质疑的用户体验缺陷。</div>
+    <div class="step-num" style="background:var(--green)">✓</div>
+    <div class="step-content" style="text-decoration:line-through; color:var(--muted);"><strong>YAML/CSV 基础导出</strong> — exportAllYaml / exportSingleTcYaml / exportReviewNotesCsv。已完成。</div>
   </div>
   <div class="migration-step">
-    <div class="step-num">4</div>
-    <div class="step-content"><strong>实现导出四件套</strong> — YAML + Excel 三 Sheet + 审核明细 CSV + 模板下载。v12 已有 XLSX.js，直接复用 v11 导出函数。</div>
+    <div class="step-num" style="background:var(--red)">4</div>
+    <div class="step-content"><strong>接入 PocketBase API</strong> — 将所有 localStorage 数据操作替换为 PocketBase CRUD。loadAppConfig → fetch /api/collections/voices/records；decide → POST decisions；addVoice → POST voices。localStorage 降级为离线缓存。<strong>（P0 · 预计 2-3h）</strong></div>
   </div>
   <div class="migration-step">
-    <div class="step-num">5</div>
-    <div class="step-content"><strong>接入 D3 力导向图</strong> — 引入 D3.js v7.8.5，移植 <code>initGraph()</code>，数据源从三阶段引擎的决策结果自动构建 <code>graphNodes</code>/<code>graphLinks</code>。</div>
+    <div class="step-num" style="background:var(--red)">5</div>
+    <div class="step-content"><strong>移植三阶段引擎</strong> — startGen() → async runWikiJudgment()，循环调 /api/llm/stage1 + /api/llm/stage2，每阶段推送 DecisionEvent 渲染卡片，完成后调 /api/wiki/persist 写回知识库。LLM prompt 工程 + token 统计已由后端完成。<strong>（P0 · 预计 4-5h）</strong></div>
   </div>
   <div class="migration-step">
-    <div class="step-num">6</div>
-    <div class="step-content"><strong>添加 localStorage 持久化</strong> — 声音数据、审核状态、审核备注、决策历史的自动保存与恢复，确保刷新不丢数据。</div>
+    <div class="step-num" style="background:var(--red)">6</div>
+    <div class="step-content"><strong>接入 D3 力导向图</strong> — 引入 D3.js v7.8.5 CDN，移植 initGraph()，数据源从 /api/wiki/state + voices + tcs 构建 graphNodes/graphLinks。节点点击跳转 Voice/REQ/TC 对应页面。<strong>（P0 · 预计 3-4h）</strong></div>
   </div>
   <div class="migration-step">
-    <div class="step-num" style="background:var(--accent)">7</div>
-    <div class="step-content"><strong>Excel 列别名匹配</strong> — 引入 <code>VOICE_COLUMN_ALIASES</code> + <code>_matchCol()</code>，让导入支持多种列名写法。附带合并/替换选择和 ID 冲突自动重编号。<strong>（答辩加分项）</strong></div>
+    <div class="step-num" style="background:var(--amber)">7</div>
+    <div class="step-content"><strong>Excel 导入导出</strong> — 实现 exportAllExcel()（三 Sheet：用例清单 + 审核统计 + 关系明细）和 handleVoiceImport()（VOICE_COLUMN_ALIASES 列别名匹配）。XLSX.js CDN 已引入。<strong>（P1 · 预计 2h）</strong></div>
   </div>
   <div class="migration-step">
     <div class="step-num" style="background:var(--accent)">8</div>
-    <div class="step-content"><strong>LLM 占位卡片 + 审计日志</strong> — 三阶段引擎中 LLM 调用前推送 processing 占位卡片，返回后替换；同时维护决策历史日志和 LLM 调用日志（含成本估算）。<strong>（答辩加分项）</strong></div>
+    <div class="step-content"><strong>LLM 管理面板 + 统计</strong> — /api/admin/llm-config 配置 UI + /api/llm/stats 统计面板 + LLM 占位卡片 UX + 用例重新生成功能。<strong>（Nice · 预计 2-3h）</strong></div>
   </div>
 </div>
 
@@ -672,29 +753,89 @@
     <div class="arch-box" style="border-left: 3px solid var(--red);">
       <h4 style="color: var(--red);">v12 当前架构</h4>
       <p style="font-size:12px; color:var(--muted);">
-        <code>data.js</code> ← 硬编码常量<br>
-        <code>app.js</code> ← 页面路由 + UI 状态<br>
-        <code>pages.js</code> ← 页面组件渲染<br>
-        ❌ 无业务引擎<br>
-        ❌ 无数据持久化<br>
-        ❌ 无导出实现<br>
-        ❌ 无图谱引擎
+        <code>data.js</code> ← appConfig + localStorage<br>
+        <code>app.js</code> ← 页面路由 + UI 状态 + toast<br>
+        <code>pages.js</code> ← 7 个页面渲染（2 个空白）<br>
+        <code>.html</code> ← XLSX.js CDN（D3.js 未引入）<br>
+        ❌ 无后端连接<br>
+        ❌ 无业务引擎（startGen 空壳）<br>
+        ❌ 无图谱引擎<br>
+        ✅ appConfig 配置层<br>
+        ✅ 审核备注机制<br>
+        ✅ YAML/CSV 导出
       </p>
     </div>
-    <div style="display:flex; align-items:center; font-size:24px; color:var(--muted);">→</div>
-    <div class="arch-box" style="border-left: 3px solid var(--green);">
-      <h4 style="color: var(--green);">v11 验证过的架构</h4>
+    <div class="flow-arrow" style="font-size:28px">→</div>
+    <div class="arch-box" style="border-left: 3px solid var(--teal);">
+      <h4 style="color: var(--teal);">v11 + PocketBase 完整架构</h4>
       <p style="font-size:12px; color:var(--muted);">
-        <code>appConfig</code> ← 统一配置层<br>
-        <code>runWikiJudgment()</code> ← 三阶段引擎<br>
-        <code>DecisionStream</code> ← 实时决策流<br>
-        <code>persistState()</code> ← localStorage<br>
-        <code>initGraph()</code> ← D3 力导向图<br>
-        ✅ 导出四件套<br>
-        ✅ LLM 集成 + token 统计
+        <strong>PocketBase</strong> (SQLite)<br>
+        · 7 张数据表<br>
+        · LLM 代理（隐藏 API Key）<br>
+        · /api/llm/stage1, stage2<br>
+        · /api/wiki/persist, state<br>
+        · /api/llm/stats, admin/llm-config<br>
+        <strong>前端</strong> (5952 行)<br>
+        · appConfig 三层配置<br>
+        · runWikiJudgment 三阶段引擎<br>
+        · DecisionStream 实时决策流<br>
+        · D3.js 力导向图<br>
+        · 4 种导出 + 列别名导入<br>
+        · localStorage 离线缓存
       </p>
     </div>
   </div>
+</div>
+
+<!-- ==================== FDE 答辩视角 ==================== -->
+<div class="section">
+  <div class="section-title">FDE 答辩评委视角</div>
+
+  <table>
+    <thead><tr><th style="width:200px">评委可能的关注点</th><th>v12 现状风险</th><th>修复后可展示的能力</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>"你的系统有后端吗？"</td>
+        <td style="color:var(--red)">纯前端 localStorage，无后端</td>
+        <td style="color:var(--green)">PocketBase 后端 + SQLite + RESTful API + LLM 代理</td>
+      </tr>
+      <tr>
+        <td>"AI 怎么参与用例生成的？"</td>
+        <td style="color:var(--red)">startGen() 仅 showToast，无 AI 逻辑</td>
+        <td style="color:var(--green)">DeepSeek LLM 三阶段判断 + reasoning 可视化 + token 统计</td>
+      </tr>
+      <tr>
+        <td>"数据之间的关系能看吗？"</td>
+        <td style="color:var(--red)">图谱页面空白</td>
+        <td style="color:var(--green)">D3 力导向图 · Voice→REQ→TC 三层关系可视化 + 节点交互跳转</td>
+      </tr>
+      <tr>
+        <td>"数据安全吗？API Key 呢？"</td>
+        <td style="color:var(--amber)">无后端，谈不上安全</td>
+        <td style="color:var(--green)">API Key 存 PocketBase secrets 表（仅 admin 可读）+ 后端代理调用</td>
+      </tr>
+      <tr>
+        <td>"数据能导出给别人用吗？"</td>
+        <td style="color:var(--amber)">只有 YAML + CSV</td>
+        <td style="color:var(--green)">Excel 三 Sheet + YAML + CSV + JSON 全量备份</td>
+      </tr>
+      <tr>
+        <td>"导入支持不同格式吗？"</td>
+        <td style="color:var(--red)">导入按钮报错</td>
+        <td style="color:var(--green)">Excel 列别名匹配（6 种字段 × 5 种写法）+ CSV BOM 兼容</td>
+      </tr>
+      <tr>
+        <td>"审核过程可追溯吗？"</td>
+        <td style="color:var(--amber)">备注存内存，刷新丢失</td>
+        <td style="color:var(--green)">decisions 表不可变审计日志 + sceneSnapshot 快照</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div style="text-align:center; padding:20px; color:var(--muted); font-size:12px; font-family: 'SF Mono', Menlo, monospace;">
+  报告生成时间：2026-05-11 15:01 · 基于 v11 源码 + PocketBase Hooks 分析<br>
+  PocketBase 后端位置：/Users/sunny/Claude/Projects/HTMI_G/pb/ · 运行中 127.0.0.1:8090
 </div>
 
 </div>

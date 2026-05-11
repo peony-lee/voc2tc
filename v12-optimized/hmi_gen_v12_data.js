@@ -1,10 +1,10 @@
 // ===== DATA =====
-// v12-optimized: 加入 appConfig 配置层，替代硬编码数据
-// 参考 v11 的 appConfig 模式，支持 localStorage 持久化
+// v12-optimized: appConfig config layer + PocketBase API integration
+// Dual mode: PocketBase API when available, fallback to localStorage
 
 const CONFIG_STORAGE_KEY = 'hmi_gen_v12_config';
 
-// ── 统一配置对象（单一数据源）─
+// ── Config object (single source of truth) ──
 let appConfig = {
   voices: [],
   modules: [],
@@ -13,10 +13,10 @@ let appConfig = {
   ctx: { selectedVoices: [], autoModules: [] }
 };
 
-// ── 工作变量（由 _applyAppConfig 从 appConfig 同步）─
-let DATA = null;  // 保持向后兼容，由 _applyAppConfig 维护
+// ── Working variables (synced from appConfig via _applyAppConfig) ──
+let DATA = null;
 
-// ── Fallback 内置默认数据（首次使用时的初始数据）─
+// ── Fallback built-in data (first-use defaults) ──
 function _buildFallbackConfig() {
   return {
     voices: [
@@ -75,7 +75,7 @@ function _buildFallbackConfig() {
   };
 }
 
-// ── 将 appConfig 同步到 DATA 工作变量（保持向后兼容）─
+// ── Sync appConfig -> DATA working variables ──
 function _applyAppConfig() {
   DATA = {
     voices: appConfig.voices || [],
@@ -86,7 +86,7 @@ function _applyAppConfig() {
   };
 }
 
-// ── 从 localStorage 加载配置，失败则用 fallback ─
+// ── Load from localStorage, fallback to built-in ──
 function loadAppConfig() {
   try {
     const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
@@ -99,13 +99,12 @@ function loadAppConfig() {
       }
     }
   } catch(e) { console.warn('loadAppConfig failed', e); }
-  // fallback
   appConfig = _buildFallbackConfig();
   _applyAppConfig();
   return false;
 }
 
-// ── 保存配置到 localStorage ─
+// ── Save to localStorage ──
 function saveAppConfig() {
   try {
     localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(appConfig));
@@ -116,18 +115,18 @@ function saveAppConfig() {
   }
 }
 
-// ── 导出配置为 JSON 文件 ─
+// ── Export config as JSON file ──
 function exportAppConfig() {
   const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), version:'v12', appConfig }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'HMI_GEN_v12_配置_' + _dateTag() + '.json';
+  a.download = 'HMI_GEN_v12_' + _dateTag() + '.json';
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
-// ── 从 JSON 文件导入配置 ─
+// ── Import config from JSON file ──
 function importAppConfig(file, merge) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -135,12 +134,10 @@ function importAppConfig(file, merge) {
       try {
         const imported = JSON.parse(e.target.result);
         if (merge) {
-          // 合并模式：追加声音，跳过重复 ID
           const existingIds = new Set(appConfig.voices.map(v => v.id));
           imported.appConfig.voices.forEach(v => {
             if (!existingIds.has(v.id)) appConfig.voices.push(v);
           });
-          // 合并模块（按 id 去重）
           const modIds = new Set(appConfig.modules.map(m => m.id));
           imported.appConfig.modules.forEach(m => {
             if (!modIds.has(m.id)) appConfig.modules.push(m);
@@ -157,7 +154,7 @@ function importAppConfig(file, merge) {
   });
 }
 
-// ── 工具：生成日期标签用于文件名 ─
+// ── Date tag utility ──
 function _dateTag() {
   const d = new Date();
   return d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') + '_' +
@@ -168,5 +165,169 @@ const DEC_LABELS = {
   exact:'完全命中', partial:'部分命中', 'new-req':'新建REQ', 'cross-req':'跨REQ', clarify:'需澄清'
 };
 
-// ── 初始化：页面加载时调用 ─
-// loadAppConfig(); // 由主 HTML 的 init() 调用
+// ══════════════════════════════════════════════════════
+//  PocketBase API Integration Layer
+//  Dual mode: API when backend available, localStorage fallback
+// ══════════════════════════════════════════════════════
+
+const PB = {
+  _url: 'http://127.0.0.1:8090',
+  _connected: null,
+
+  setUrl(url) { this._url = url.replace(/\/$/, ''); this._connected = null; },
+  getUrl() { return this._url; },
+
+  async _fetch(path, opts = {}) {
+    const url = this._url + path;
+    opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error('HTTP ' + res.status + ': ' + err.slice(0, 200));
+    }
+    return res.json();
+  },
+
+  async checkHealth() {
+    try {
+      const r = await this._fetch('/api/health/htmig');
+      this._connected = true;
+      return r;
+    } catch(e) {
+      this._connected = false;
+      return null;
+    }
+  },
+
+  isConnected() { return this._connected === true; },
+
+  async fetchVoices() {
+    if (!this._connected) return null;
+    try {
+      const r = await this._fetch('/api/collections/voices/records?perPage=500&sort=voiceId');
+      return (r.items || []).map(it => ({
+        id: it.voiceId, model: it.model || '', text: it.content || '',
+        source: it.channel || '', status: it.status || 'pending',
+        module: it.module || '', tcs: it.reqs || [], brand: it.brand || '',
+        type: it.type || '', dim: it.dim || '', score: it.score || 0,
+        nlp: it.nlp || null
+      }));
+    } catch(e) { console.warn('fetchVoices fail:', e); return null; }
+  },
+
+  async fetchReqs() {
+    if (!this._connected) return null;
+    try {
+      const r = await this._fetch('/api/collections/reqs/records?perPage=500&sort=reqId');
+      const reqMap = {};
+      (r.items || []).forEach(it => {
+        reqMap[it.reqId] = {
+          name: it.name || it.reqId,
+          tcCnt: (it.tcIdList || []).length,
+          isNew: it.isAuto || false,
+          module: it.module || '',
+          priority: it.priority || '',
+          status: it.status || '',
+          voiceIds: it.voiceIds || [],
+          version: it.version || 1
+        };
+      });
+      return reqMap;
+    } catch(e) { console.warn('fetchReqs fail:', e); return null; }
+  },
+
+  async fetchTcs() {
+    if (!this._connected) return null;
+    try {
+      const r = await this._fetch('/api/collections/tcs/records?perPage=500&sort=tcId');
+      return (r.items || []).map(it => ({
+        id: it.tcId, module: it.module || '',
+        conf: it.confVal >= 0.8 ? 'high' : it.confVal >= 0.6 ? 'mid' : 'low',
+        conf_n: it.confVal || 0,
+        scene: it.scene || '', from: it.fromVoice ? [it.fromVoice] : [],
+        req: it.reqId || '', decision: null,
+        expect: it.expectedResult || '',
+        dec_type: it.fromVoice ? 'exact' : 'new-req',
+        name: it.name || '', why: it.why || '',
+        steps: it.steps || [], priority: it.priority || '',
+        tcType: it.tcType || '', status: it.status || '',
+        reviewStatus: it.reviewStatus || '', coverage: it.coverage || ''
+      }));
+    } catch(e) { console.warn('fetchTcs fail:', e); return null; }
+  },
+
+  async appendDecision(entry) {
+    if (!this._connected) return false;
+    try {
+      await this._fetch('/api/collections/decisions/records', {
+        method: 'POST',
+        body: JSON.stringify({
+          tcId: entry.tcId || '', voiceId: entry.voiceId || '',
+          action: entry.action || 'accept', note: entry.note || '',
+          sceneSnapshot: entry.sceneSnapshot || '', userEmail: entry.userEmail || ''
+        })
+      });
+      return true;
+    } catch(e) { console.warn('appendDecision fail:', e); return false; }
+  },
+
+  async persistWikiResult(result) {
+    if (!this._connected) return null;
+    try {
+      return await this._fetch('/api/wiki/persist', {
+        method: 'POST',
+        body: JSON.stringify({ result })
+      });
+    } catch(e) { console.warn('persistWikiResult fail:', e); return null; }
+  },
+
+  async getWikiState() {
+    if (!this._connected) return null;
+    try {
+      return await this._fetch('/api/wiki/state');
+    } catch(e) { return null; }
+  },
+
+  async getLlmStats() {
+    if (!this._connected) return null;
+    try {
+      return await this._fetch('/api/llm/stats');
+    } catch(e) { return null; }
+  },
+
+  async callStage1(voiceId, content) {
+    if (!this._connected) throw new Error('Backend not connected');
+    return await this._fetch('/api/llm/stage1', {
+      method: 'POST',
+      body: JSON.stringify({ voiceId, content })
+    });
+  },
+
+  async callStage2(voiceId, content, candidateTcs) {
+    if (!this._connected) throw new Error('Backend not connected');
+    return await this._fetch('/api/llm/stage2', {
+      method: 'POST',
+      body: JSON.stringify({ voiceId, content, candidateTcs })
+    });
+  },
+
+  // ── Sync from backend: fetch all 3 tables and merge into appConfig ──
+  async syncFromBackend() {
+    const [voices, reqs, tcs] = await Promise.all([
+      this.fetchVoices(), this.fetchReqs(), this.fetchTcs()
+    ]);
+    if (voices) appConfig.voices = voices;
+    if (reqs) appConfig.reqs = reqs;
+    if (tcs) appConfig.tcs = tcs;
+    if (voices || reqs || tcs) {
+      _applyAppConfig();
+      saveAppConfig();
+    }
+    return { voices: voices ? voices.length : 0, reqs: reqs ? Object.keys(reqs).length : 0, tcs: tcs ? tcs.length : 0 };
+  }
+};
+
+// Convenience function for use in app.js / pages.js
+async function PB_FETCH(path, opts) {
+  return PB._fetch(path, opts);
+}

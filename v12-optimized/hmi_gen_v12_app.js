@@ -36,6 +36,10 @@ function render() {
     });
     document.getElementById('vsel-cnt').textContent = DATA.ctx.selectedVoices.length;
   }
+  // initialize graph if on graph page
+  if(currentPage==='graph'){
+    setTimeout(initGraphV12, 100);
+  }
   pc.scrollTop = 0;
 }
 
@@ -93,13 +97,240 @@ function clearModules(){
   DATA.ctx.autoModules = [];
   render();
 }
+// ===== THREE-STAGE GENERATION ENGINE =====
+// Replaces the stub startGen with actual PocketBase API calls
+// Stage1: voice -> requirement classification (LLM)
+// Stage2: 4W TC matching (LLM)
+// Stage3: wiki/persist (write results)
+
+let _genState = { running: false, stage: 0, total: 0, current: 0, results: null };
+
 function startGen(){
   if(!DATA.ctx.autoModules.length){
     showToast('请至少选中一个模块','error');
     return;
   }
-  showToast('生成完成 · 13 条用例已就绪','success');
-  goPage('review');
+  if(_genState.running){
+    showToast('生成正在进行中...','error');
+    return;
+  }
+
+  // Collect voices to process: selected voices or all pending
+  let voicesToProcess = DATA.ctx.selectedVoices.length > 0
+    ? DATA.voices.filter(v => DATA.ctx.selectedVoices.includes(v.id))
+    : DATA.voices.filter(v => v.status === 'pending' || v.status === 'new_req');
+
+  if(voicesToProcess.length === 0){
+    showToast('没有可处理的声音，跳过 LLM 直接进入审核','success');
+    goPage('review');
+    return;
+  }
+
+  // Filter by selected modules
+  const modSet = new Set(DATA.ctx.autoModules);
+  voicesToProcess = voicesToProcess.filter(v => modSet.has(v.module));
+
+  if(voicesToProcess.length === 0){
+    showToast('选中模块内无可处理的声音','error');
+    return;
+  }
+
+  if(PB.isConnected()){
+    _runGenWithBackend(voicesToProcess);
+  } else {
+    _runGenLocal(voicesToProcess);
+  }
+}
+
+// ── Backend mode: call PocketBase LLM APIs ──
+async function _runGenWithBackend(voices){
+  _genState = { running: true, stage: 1, total: voices.length, current: 0, results: { exactHits:[], partialHits:[], newReqs:[], crossReqs:[], needClarify:[] } };
+  _updateGenProgress();
+
+  try {
+    // Stage 1: Voice -> Req classification for each voice
+    for(let i = 0; i < voices.length; i++){
+      const v = voices[i];
+      _genState.current = i + 1;
+      _genState.stage = 1;
+      _updateGenProgress();
+
+      try {
+        const result = await PB.callStage1(v.id, v.text);
+        if(result && result.ok && result.parsed){
+          const parsed = result.parsed;
+          // Update voice status
+          v.status = parsed.status || 'categorized';
+          v.module = parsed.module || v.module;
+          // Classify result into buckets
+          const decision = parsed.decision || 'clarify';
+          const entry = { voiceId: v.id, reqId: parsed.reqId, module: parsed.module, confidence: parsed.confidence || 0, reasoning: parsed.reasoning || '' };
+          if(decision === 'exact') _genState.results.exactHits.push(entry);
+          else if(decision === 'partial') _genState.results.partialHits.push(entry);
+          else if(decision === 'new-req') _genState.results.newReqs.push(entry);
+          else if(decision === 'cross-req') _genState.results.crossReqs.push(entry);
+          else _genState.results.needClarify.push(entry);
+        }
+      } catch(e){
+        console.warn('Stage1 fail for ' + v.id + ':', e);
+        // Fallback: mark as needs-clarify
+        _genState.results.needClarify.push({ voiceId: v.id, module: v.module, confidence: 0, reasoning: 'Stage1 error: ' + e.message });
+      }
+    }
+
+    // Stage 2: 4W TC matching (batch for partial/new-req/cross)
+    _genState.stage = 2;
+    const needMatchVoices = voices.filter(v =>
+      _genState.results.partialHits.some(h => h.voiceId === v.id) ||
+      _genState.results.newReqs.some(h => h.voiceId === v.id) ||
+      _genState.results.crossReqs.some(h => h.voiceId === v.id)
+    );
+
+    for(let i = 0; i < needMatchVoices.length; i++){
+      const v = needMatchVoices[i];
+      _genState.current = i + 1;
+      _updateGenProgress();
+
+      try {
+        const candidateTcs = DATA.tcs.filter(tc => tc.module === v.module).map(tc => ({
+          id: tc.id, scene: tc.scene, expect: tc.expect,
+          what: tc.scene, when: '', where: v.module, who: v.model
+        }));
+        const result = await PB.callStage2(v.id, v.text, candidateTcs);
+        if(result && result.ok && result.parsed){
+          // Create or update TC based on Stage2 result
+          const parsed = result.parsed;
+          if(parsed.baseTcId){
+            const existingTc = DATA.tcs.find(tc => tc.id === parsed.baseTcId);
+            if(existingTc){
+              existingTc.from.push(v.id);
+              existingTc.conf_n = parsed.confidence || existingTc.conf_n;
+              existingTc.conf = existingTc.conf_n >= 0.8 ? 'high' : existingTc.conf_n >= 0.6 ? 'mid' : 'low';
+              v.tcs.push(existingTc.id);
+            }
+          }
+          // If new TC suggested, add it
+          if(parsed.newTcSuggestion && parsed.newTcSuggestion.scene){
+            const seq = String(DATA.tcs.length + 1).padStart(3, '0');
+            const newTcId = 'TC-' + v.module.toUpperCase().slice(0,4) + '-' + seq;
+            const newTc = {
+              id: newTcId, module: v.module,
+              conf: 'mid', conf_n: parsed.confidence || 0.6,
+              scene: parsed.newTcSuggestion.scene || '',
+              from: [v.id], req: parsed.reqId || '',
+              decision: null, expect: parsed.newTcSuggestion.expect || '',
+              dec_type: 'new-req'
+            };
+            DATA.tcs.push(newTc);
+            v.tcs.push(newTcId);
+          }
+        }
+      } catch(e){
+        console.warn('Stage2 fail for ' + v.id + ':', e);
+      }
+    }
+
+    // Stage 3: Persist to wiki
+    _genState.stage = 3;
+    _genState.current = 0;
+    _updateGenProgress();
+
+    try {
+      await PB.persistWikiResult(_genState.results);
+    } catch(e){
+      console.warn('Wiki persist fail:', e);
+    }
+
+    // Sync back to appConfig
+    _applyAppConfig();
+    saveAppConfig();
+
+    _genState.running = false;
+    _genState.stage = 0;
+    showToast('生成完成 · ' + DATA.tcs.length + ' 条用例已就绪','success');
+    setTimeout(() => goPage('review'), 500);
+
+  } catch(e){
+    _genState.running = false;
+    showToast('生成出错：' + e.message,'error');
+  }
+}
+
+// ── Local mode: use existing data (no LLM) ──
+function _runGenLocal(voices){
+  _genState = { running: true, stage: 1, total: voices.length, current: 0, results: { exactHits:[], partialHits:[], newReqs:[], crossReqs:[], needClarify:[] } };
+  _updateGenProgress();
+
+  // Simulate stage 1 processing with progress animation
+  let i = 0;
+  const interval = setInterval(() => {
+    if(i >= voices.length){
+      clearInterval(interval);
+      _genState.stage = 2;
+      _genState.total = 1;
+      _genState.current = 1;
+      _updateGenProgress();
+
+      setTimeout(() => {
+        _genState.stage = 3;
+        _updateGenProgress();
+        setTimeout(() => {
+          _genState.running = false;
+          _genState.stage = 0;
+          _applyAppConfig();
+          saveAppConfig();
+          showToast('本地模式生成完成 · ' + DATA.tcs.length + ' 条用例','success');
+          setTimeout(() => goPage('review'), 300);
+        }, 600);
+      }, 600);
+      return;
+    }
+
+    const v = voices[i];
+    _genState.current = i + 1;
+    _updateGenProgress();
+
+    // Local rule-based classification
+    if(v.status === 'pending') v.status = 'categorized';
+    v.tcs = v.tcs || [];
+
+    i++;
+  }, 200);
+}
+
+function _updateGenProgress(){
+  const pc = document.getElementById('pc');
+  if(!pc || currentPage !== 'generate') return;
+
+  // Update pipeline visualization
+  const stageLabels = ['声音整理','需求归类','用例决策'];
+  const stageIdx = _genState.stage - 1;
+
+  // Update pipe nodes
+  document.querySelectorAll('.pipe-node').forEach((el, idx) => {
+    el.classList.remove('done','active');
+    if(idx < stageIdx) el.classList.add('done');
+    else if(idx === stageIdx) el.classList.add('active');
+  });
+
+  // Update pipe lines
+  document.querySelectorAll('.pipe-line').forEach((el, idx) => {
+    el.classList.remove('done','active');
+    if(idx < stageIdx) el.classList.add('done');
+    else if(idx === stageIdx) el.classList.add('active');
+  });
+
+  // Update card header to show progress
+  const cardHeader = document.querySelector('.gen-grid .card-h');
+  if(cardHeader && _genState.running){
+    cardHeader.innerHTML = '三阶段流水线 <small>Stage ' + _genState.stage + '/3 · ' +
+      (_genState.current > 0 ? _genState.current + '/' + _genState.total : '处理中...') + '</small>';
+  }
+
+  // Show progress toast for stage transitions
+  if(_genState.stage === 1 && _genState.current === 1) showToast('Stage 1/3: 需求分类中...','');
+  if(_genState.stage === 2 && _genState.current === 1) showToast('Stage 2/3: 用例匹配中...','');
+  if(_genState.stage === 3) showToast('Stage 3/3: 持久化知识库...','');
 }
 
 // ===== DECISIONS (optimized: with notes support) =====
@@ -373,6 +604,55 @@ document.querySelectorAll('.nav-item').forEach(item=>{
   });
 });
 
+// ===== Wiki: 从 PocketBase 刷新数据 =====
+async function refreshWikiFromBackend(){
+  try {
+    const res = await PB_FETCH('/api/wiki/state');
+    if(res && res.reqs){
+      // 合并后端数据到本地 appConfig
+      (res.reqs||[]).forEach(r => {
+        if(!appConfig.reqs[r.reqId]){
+          appConfig.reqs[r.reqId] = {name: r.name || r.reqId, tcCnt: (r.tcIdList||[]).length, isNew: false};
+        } else {
+          appConfig.reqs[r.reqId].name = r.name || appConfig.reqs[r.reqId].name;
+          appConfig.reqs[r.reqId].tcCnt = (r.tcIdList||[]).length || appConfig.reqs[r.reqId].tcCnt;
+        }
+      });
+      _applyAppConfig();
+      saveAppConfig();
+      showToast(`从后端刷新 ${res.reqs.length} 个需求`,'success');
+      render();
+    } else {
+      showToast('后端无数据或未连接','error');
+    }
+  } catch(e){
+    showToast('连接后端失败：' + e.message,'error');
+  }
+}
+
 // 启动时先从 localStorage 加载配置（若存在），再渲染
 loadAppConfig();
+
+// Async: check PocketBase health and sync if available
+(async function initBackend(){
+  const health = await PB.checkHealth();
+  if(health){
+    console.info('[PB] Backend connected:', PB.getUrl());
+    // Update sidebar footer
+    const footer = document.querySelector('.sidebar-footer span:last-child');
+    if(footer) footer.textContent = '引擎运行中 · 后端已连';
+    try {
+      const stats = await PB.syncFromBackend();
+      if(stats.voices + stats.reqs + stats.tcs > 0){
+        console.info('[PB] Synced:', stats);
+        render(); // re-render with backend data
+      }
+    } catch(e){ console.warn('[PB] Sync failed:', e); }
+  } else {
+    console.info('[PB] Backend not available, using localStorage fallback');
+    const footer = document.querySelector('.sidebar-footer span:last-child');
+    if(footer) footer.textContent = '本地模式 · localStorage';
+  }
+})();
+
 render();
