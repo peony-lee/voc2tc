@@ -1,0 +1,14 @@
+# WorkBuddy memory
+.workbuddy/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
