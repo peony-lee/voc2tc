@@ -598,8 +598,7 @@ function showToast(msg, type='success'){
 
 // ===== INIT =====
 document.querySelectorAll('.nav-item').forEach(item=>{
-  item.addEventListener('click', e=>{
-    e.preventDefault();
+  item.addEventListener('click', ()=>{
     goPage(item.dataset.page);
   });
 });

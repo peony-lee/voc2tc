@@ -457,9 +457,9 @@ PAGES.graph = () => {
     <div class="card-h">关系图谱 <small>Voice → REQ → TC 可视化</small></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <div class="graph-legend-inline">
-        <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#3B82F6;display:inline-block"></span> 声音 Voice</span>
-        <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px"><span style="width:10px;height:10px;border-radius:2px;background:#F59E0B;display:inline-block;transform:rotate(30deg)"></span> 需求 REQ</span>
-        <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px"><span style="width:14px;height:8px;border-radius:3px;background:#10B981;display:inline-block"></span> 用例 TC</span>
+        <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#00447C;display:inline-block;box-shadow:0 0 6px rgba(0,68,124,0.3)"></span> 声音 Voice</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px"><span style="width:10px;height:10px;border-radius:2px;background:#C47E00;display:inline-block;transform:rotate(30deg);box-shadow:0 0 6px rgba(196,126,0,0.3)"></span> 需求 REQ</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px"><span style="width:14px;height:8px;border-radius:3px;background:#0D9B60;display:inline-block;box-shadow:0 0 6px rgba(13,155,96,0.3)"></span> 用例 TC</span>
       </div>
       <div style="margin-left:auto;display:flex;gap:6px">
         <button class="btn btn-sm" onclick="graphZoomIn()">＋</button>
@@ -469,6 +469,7 @@ PAGES.graph = () => {
     </div>
     <div id="graph-container" style="width:100%;height:480px;background:#fff;border:1px solid var(--border);border-radius:var(--r-sm);position:relative;overflow:hidden">
       <svg id="relation-graph" width="100%" height="100%"></svg>
+      <div id="graph-tooltip" style="position:absolute;pointer-events:none;background:rgba(255,255,255,0.95);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;font-size:11px;color:var(--text-main);box-shadow:var(--shadow-sm);opacity:0;transition:opacity 0.2s ease;z-index:10;max-width:220px;backdrop-filter:blur(4px)"></div>
     </div>
   </div>
 
@@ -624,60 +625,65 @@ function initGraphV12() {
   // defs
   const defs = d3.select(svgEl).append('defs');
 
-  // 网格背景
+  // 网格背景 - 使用上汽蓝浅色
   const grid = defs.append('pattern').attr('id','g-grid').attr('width',36).attr('height',36).attr('patternUnits','userSpaceOnUse');
-  grid.append('path').attr('d','M 36 0 L 0 0 0 36').attr('fill','none').attr('stroke','rgba(26,111,212,0.08)').attr('stroke-width',1);
+  grid.append('path').attr('d','M 36 0 L 0 0 0 36').attr('fill','none').attr('stroke','rgba(0,68,124,0.06)').attr('stroke-width',1);
 
-  // 径向渐变
+  // 径向渐变 - 优化配色匹配上汽蓝主题
   const mkGrad = (id, c1, c2) => {
-    const g = defs.append('radialGradient').attr('id',id).attr('cx','30%').attr('cy','30%');
+    const g = defs.append('radialGradient').attr('id',id).attr('cx','35%').attr('cy','35%');
     g.append('stop').attr('offset','0%').attr('stop-color',c1);
     g.append('stop').attr('offset','100%').attr('stop-color',c2);
   };
-  mkGrad('gv','#60D4FF','#1A6FD4');
-  mkGrad('gr','#FDE68A','#D97706');
-  mkGrad('gt','#6EE7B7','#059669');
+  // Voice: 上汽蓝渐变
+  mkGrad('gv','rgba(0,68,124,0.3)','rgba(26,111,212,0.15)');
+  // REQ: 琥珀色渐变
+  mkGrad('gr','rgba(245,158,11,0.3)','rgba(217,119,6,0.15)');
+  // TC: 绿色渐变
+  mkGrad('gt','rgba(16,185,129,0.3)','rgba(5,150,105,0.15)');
 
-  // 辉光滤镜
+  // 辉光滤镜 - 优化发光效果
   const mkGlow = (id, rgb, std) => {
-    const f = defs.append('filter').attr('id',id).attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+    const f = defs.append('filter').attr('id',id).attr('x','-60%').attr('y','-60%').attr('width','220%').attr('height','220%');
     f.append('feColorMatrix').attr('type','matrix').attr('values',`0 0 0 0 ${rgb[0]} 0 0 0 0 ${rgb[1]} 0 0 0 0 ${rgb[2]} 0 0 0 1 0`).attr('result','col');
     f.append('feGaussianBlur').attr('in','col').attr('stdDeviation',std).attr('result','blur');
     const m = f.append('feMerge'); m.append('feMergeNode').attr('in','blur'); m.append('feMergeNode').attr('in','SourceGraphic');
   };
-  mkGlow('glow-v',['0.18','0.55','1'],4);
-  mkGlow('glow-r',['0.97','0.65','0.07'],4);
-  mkGlow('glow-t',['0.06','0.73','0.51'],4);
+  mkGlow('glow-v',['0.0','0.27','0.49'],5);
+  mkGlow('glow-r',['0.96','0.62','0.02'],5);
+  mkGlow('glow-t',['0.06','0.73','0.51'],5);
 
-  // 箭头
-  [['arr-b','#3B82F6'],['arr-n','#10B981'],['arr-d','#F59E0B']].forEach(([id,color]) => {
-    defs.append('marker').attr('id',id).attr('viewBox','0 -4 9 8')
-      .attr('refX',32).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
-      .append('path').attr('d','M0,-4L9,0L0,4Z').attr('fill',color).attr('opacity',0.8);
+  // 箭头 - 优化箭头样式
+  [['arr-b','#00447C'],['arr-n','#0D9B60'],['arr-d','#C47E00']].forEach(([id,color]) => {
+    defs.append('marker').attr('id',id).attr('viewBox','0 -5 10 10')
+      .attr('refX',28).attr('refY',0).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto-start-reverse')
+      .append('path').attr('d','M0,-4L8,0L0,4Q').attr('fill',color).attr('opacity',0.85);
   });
 
-  // 背景
+  // 背景 - 使用浅色底纹
   d3.select(svgEl).append('rect').attr('width',width).attr('height',height).attr('fill','#FFFFFF');
   d3.select(svgEl).append('rect').attr('width',width).attr('height',height).attr('fill','url(#g-grid)');
 
   const g = d3.select(svgEl).append('g');
 
-  // 力模拟
+  // 力模拟 - 优化参数使布局更清晰
   const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(130).strength(0.7))
-    .force('charge', d3.forceManyBody().strength(-420))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(140).strength(0.8))
+    .force('charge', d3.forceManyBody().strength(-500))
     .force('center', d3.forceCenter(width/2, height/2))
-    .force('collide', d3.forceCollide().radius(38))
-    .alphaDecay(0.022);
+    .force('collide', d3.forceCollide().radius(42))
+    .force('x', d3.forceX(width/2).strength(0.06))
+    .force('y', d3.forceY(height/2).strength(0.06))
+    .alphaDecay(0.018);
 
-  // 边
-  const edgeColor = {belong:'#3B82F6', new:'#10B981', derive:'#F59E0B'};
+  // 边 - 优化颜色和透明度
+  const edgeColor = {belong:'#00447C', new:'#0D9B60', derive:'#C47E00'};
   const edgeArrow = {belong:'url(#arr-b)', new:'url(#arr-n)', derive:'url(#arr-d)'};
   const linkG = g.append('g').selectAll('line').data(links).enter().append('line')
     .attr('stroke', d => edgeColor[d.type]||'#8AAAC4')
-    .attr('stroke-width', d => d.type==='belong' ? 1.8 : 1.4)
-    .attr('stroke-opacity', 0.55)
-    .attr('stroke-dasharray', d => d.type==='derive' ? '5,4' : d.type==='new' ? '3,3' : null)
+    .attr('stroke-width', d => d.type==='belong' ? 2 : 1.5)
+    .attr('stroke-opacity', 0.5)
+    .attr('stroke-dasharray', d => d.type==='derive' ? '6,4' : d.type==='new' ? '4,3' : null)
     .attr('marker-end', d => edgeArrow[d.type]||null);
 
   // 六边形路径
@@ -715,25 +721,52 @@ function initGraphV12() {
   nodeG.append('text').text(d=>d.label).attr('text-anchor','middle').attr('dy',32)
     .attr('font-size',9).attr('font-family','monospace').attr('fill','#4A6A8A').attr('pointer-events','none');
 
-  // 点击高亮
+  // Tooltip 交互
+  const tooltip = document.getElementById('graph-tooltip');
+  const typeMap = {voice:'声音', req:'需求', tc:'用例'};
+  const typeColor = {voice:'#00447C', req:'#C47E00', tc:'#0D9B60'};
+
+  nodeG.on('mouseenter', function(event, d) {
+    const detail = d.text || d.scene || (d.name ? d.name : '');
+    const connCount = links.filter(l => {
+      const src = typeof l.source==='object'?l.source.id:l.source;
+      const tgt = typeof l.target==='object'?l.target.id:l.target;
+      return src===d.id || tgt===d.id;
+    }).length;
+    tooltip.innerHTML = `<div style="font-weight:700;color:${typeColor[d.type]};margin-bottom:3px">${d.label} <span style="font-weight:400;color:#8AAAC4">${typeMap[d.type]}</span></div>` +
+      (detail ? `<div style="color:#4A6A8A;line-height:1.4;max-height:48px;overflow:hidden">${detail.substring(0,80)}${detail.length>80?'...':''}</div>` : '') +
+      `<div style="margin-top:4px;color:#8AAAC4;font-size:10px">${connCount} 条关联</div>`;
+    tooltip.style.opacity = '1';
+  }).on('mousemove', function(event) {
+    const rect = container.getBoundingClientRect();
+    tooltip.style.left = (event.clientX - rect.left + 14) + 'px';
+    tooltip.style.top = (event.clientY - rect.top - 10) + 'px';
+  }).on('mouseleave', function() {
+    tooltip.style.opacity = '0';
+  });
+
+  // 点击高亮 - 带平滑过渡
   nodeG.on('click', function(event, d) {
     event.stopPropagation();
-    nodeG.selectAll('circle,path,rect').attr('opacity',0.25);
-    d3.select(this).selectAll('circle,path,rect').attr('opacity',1);
-    linkG.attr('stroke-opacity', l => {
-      const src = typeof l.source==='object'?l.source.id:l.source;
-      const tgt = typeof l.target==='object'?l.target.id:l.target;
-      return (src===d.id||tgt===d.id) ? 0.9 : 0.1;
-    }).attr('stroke-width', l => {
-      const src = typeof l.source==='object'?l.source.id:l.source;
-      const tgt = typeof l.target==='object'?l.target.id:l.target;
-      return (src===d.id||tgt===d.id) ? 2.5 : 1;
-    });
+    nodeG.transition().duration(300).style('opacity', n => (n.id===d.id) ? 1 : 0.15);
+    linkG.transition().duration(300)
+      .attr('stroke-opacity', l => {
+        const src = typeof l.source==='object'?l.source.id:l.source;
+        const tgt = typeof l.target==='object'?l.target.id:l.target;
+        return (src===d.id||tgt===d.id) ? 0.9 : 0.06;
+      })
+      .attr('stroke-width', l => {
+        const src = typeof l.source==='object'?l.source.id:l.source;
+        const tgt = typeof l.target==='object'?l.target.id:l.target;
+        return (src===d.id||tgt===d.id) ? 2.5 : 0.8;
+      });
   });
 
   d3.select(svgEl).on('click', () => {
-    nodeG.selectAll('circle,path,rect').attr('opacity',1);
-    linkG.attr('stroke-opacity',0.55).attr('stroke-width', l => l.type==='belong'?1.8:1.4);
+    nodeG.transition().duration(300).style('opacity', 1);
+    linkG.transition().duration(300)
+      .attr('stroke-opacity', 0.5)
+      .attr('stroke-width', l => l.type==='belong' ? 2 : 1.5);
   });
 
   // tick
